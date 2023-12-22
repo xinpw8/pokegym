@@ -1,6 +1,8 @@
 pokegym is to be used in conjunction with pufferlib
 
+
 https://github.com/xinpw8/pokegym.git -b pokegym_bill
+
 https://github.com/xinpw8/PufferLib.git -b puffer_BET_bill
 
 In a nutshell, right now, we have the AI starting from a state post-Oak-parcel-fetch-quest. 
@@ -8,6 +10,7 @@ It goes to Cerulean City and beats Misty, but gets stuck on Bill. Afaik, it's no
 You can clone my repositories at
 
 https://github.com/xinpw8/pokegym.git -b pokegym_bill
+
 https://github.com/xinpw8/PufferLib.git -b puffer_BET_bill
 
 Recommended installation:
