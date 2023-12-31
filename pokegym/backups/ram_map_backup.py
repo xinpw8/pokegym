@@ -1,3 +1,5 @@
+# addresses from https://datacrystal.romhacking.net/wiki/Pok%C3%A9mon_Red/Blue:RAM_map
+# https://github.com/pret/pokered/blob/91dc3c9f9c8fd529bb6e8307b58b96efa0bec67e/constants/event_constants.asm
 HP_ADDR = [0xD16C, 0xD198, 0xD1C4, 0xD1F0, 0xD21C, 0xD248]
 MAX_HP_ADDR = [0xD18D, 0xD1B9, 0xD1E5, 0xD211, 0xD23D, 0xD269]
 PARTY_SIZE_ADDR = 0xD163
@@ -33,6 +35,7 @@ PLAYER_Y = 0xC104
 PLAYER_X = 0xC106
 WNUMSPRITES = 0xD4E1
 WNUMSIGNS = 0xD4B0
+WCUTTILE = 0xCD4D # $3d = tree tile; $52 = grass tile
 
 # #Trainer Moves/PP counter if 00 then no move is present
 # P1MOVES = [0xD173, 0xD174, 0xD175, 0xD176]
@@ -396,7 +399,6 @@ moves_dict = {
     165: {"Move": 'Struggle', 'Type': 'Normal', 'Category': 'Physical', 'Power': 1, 'PP': 50}
 }
 
-
 def bcd(num):
     return 10 * ((num >> 4) & 0x0F) + (num & 0x0F)
 
@@ -454,8 +456,6 @@ def update_pokemon_level(pokemon_dict, pokemon_name, new_level):
     else:
         # Add a new entry for the Pokémon
         pokemon_dict[pokemon_name] = new_level
-
-
 
 # Returns dict of party pokemons' names, levels, and moves for printing to text file:
 def pokemon_l(game):
@@ -605,18 +605,100 @@ def player_x(game):
 def map_n(game):
     return game.get_memory_value(MAP_N_ADDR)
 
-def npc_y(game, npc_id, npc_bank):
+def npc_y(game, npc_id):
     npc_id = npc_id * 0x10
-    npc_bank = (npc_bank + 1) *  0x100
-    return game.get_memory_value(0xC004 + npc_id + npc_bank)
+    return game.get_memory_value(0xC104 + npc_id)
 
-def npc_x(game, npc_id, npc_bank):
+def npc_x(game, npc_id):
     npc_id = npc_id * 0x10
-    npc_bank = (npc_bank + 1) *  0x100
-    return game.get_memory_value(0xC006 + npc_id + npc_bank)
+    return game.get_memory_value(0xC106 + npc_id)
 
 def sprites(game):
     return game.get_memory_value(WNUMSPRITES)
 
 def signs(game):
     return game.get_memory_value(WNUMSIGNS)
+
+def tree_tile(game):
+    return game.get_memory_value(WCUTTILE)
+
+def rewardable_coords(glob_c, glob_r):
+            include_conditions = [
+        (80 >= glob_c >= 72) and (294 < glob_r <= 320),
+        (69 < glob_c < 74) and (313 >= glob_r >= 295),
+        (73 >= glob_c >= 72) and (220 <= glob_r <= 330),
+        (75 >= glob_c >= 74) and (310 >= glob_r <= 319),
+        # (glob_c >= 75 and glob_r <= 310),
+        (81 >= glob_c >= 73) and (294 < glob_r <= 313),
+        (73 <= glob_c <= 81) and (294 < glob_r <= 308),
+        (80 >= glob_c >= 74) and (330 >= glob_r >= 284),
+        (90 >= glob_c >= 89) and (336 >= glob_r >= 328),
+        # New below
+        # Viridian Pokemon Center
+        (282 >= glob_r >= 277) and glob_c == 98,
+        # Pewter Pokemon Center
+        (173 <= glob_r <= 178) and glob_c == 42,
+        # Route 4 Pokemon Center
+        (131 <= glob_r <= 136) and glob_c == 132,
+        (75 <= glob_c <= 76) and (271 < glob_r < 273),
+        (82 >= glob_c >= 74) and (284 <= glob_r <= 302),
+        (74 <= glob_c <= 76) and (284 >= glob_r >= 277),
+        (76 >= glob_c >= 70) and (266 <= glob_r <= 277),
+        (76 <= glob_c <= 78) and (274 >= glob_r >= 272),
+        (74 >= glob_c >= 71) and (218 <= glob_r <= 266),
+        (71 >= glob_c >= 67) and (218 <= glob_r <= 235),
+        (106 >= glob_c >= 103) and (228 <= glob_r <= 244),
+        (116 >= glob_c >= 106) and (228 <= glob_r <= 232),
+        (116 >= glob_c >= 113) and (196 <= glob_r <= 232),
+        (113 >= glob_c >= 89) and (208 >= glob_r >= 196),
+        (97 >= glob_c >= 89) and (188 <= glob_r <= 214),
+        (102 >= glob_c >= 97) and (189 <= glob_r <= 196),
+        (89 <= glob_c <= 91) and (188 >= glob_r >= 181),
+        (74 >= glob_c >= 67) and (164 <= glob_r <= 184),
+        (68 >= glob_c >= 67) and (186 >= glob_r >= 184),
+        (64 <= glob_c <= 71) and (151 <= glob_r <= 159),
+        (71 <= glob_c <= 73) and (151 <= glob_r <= 156),
+        (73 <= glob_c <= 74) and (151 <= glob_r <= 164),
+        (103 <= glob_c <= 74) and (157 <= glob_r <= 156),
+        (80 <= glob_c <= 111) and (155 <= glob_r <= 156),
+        (111 <= glob_c <= 99) and (155 <= glob_r <= 150),
+        (111 <= glob_c <= 154) and (150 <= glob_r <= 153),
+        (138 <= glob_c <= 154) and (153 <= glob_r <= 160),
+        (153 <= glob_c <= 154) and (153 <= glob_r <= 154),
+        (143 <= glob_c <= 144) and (153 <= glob_r <= 154),
+        (154 <= glob_c <= 158) and (134 <= glob_r <= 145),
+        (152 <= glob_c <= 156) and (145 <= glob_r <= 150),
+        (42 <= glob_c <= 43) and (173 <= glob_r <= 178),
+        (158 <= glob_c <= 163) and (134 <= glob_r <= 135),
+        (161 <= glob_c <= 163) and (114 <= glob_r <= 128),
+        (163 <= glob_c <= 169) and (114 <= glob_r <= 115),
+        (114 <= glob_c <= 169) and (167 <= glob_r <= 102),
+        (169 <= glob_c <= 179) and (102 <= glob_r <= 103),
+        (178 <= glob_c <= 179) and (102 <= glob_r <= 95),
+        (178 <= glob_c <= 163) and (95 <= glob_r <= 96),
+        (164 <= glob_c <= 163) and (110 <= glob_r <= 96),
+        (163 <= glob_c <= 151) and (110 <= glob_r <= 109),
+        (151 <= glob_c <= 154) and (101 <= glob_r <= 109),
+        (151 <= glob_c <= 152) and (101 <= glob_r <= 97),
+        (153 <= glob_c <= 154) and (97 <= glob_r <= 101),
+        (151 <= glob_c <= 154) and (97 <= glob_r <= 98),
+        (152 <= glob_c <= 155) and (69 <= glob_r <= 81),
+        (155 <= glob_c <= 169) and (80 <= glob_r <= 81),
+        (168 <= glob_c <= 184) and (39 <= glob_r <= 43),
+        (183 <= glob_c <= 178) and (43 <= glob_r <= 51),
+        (179 <= glob_c <= 183) and (48 <= glob_r <= 59),
+        (179 <= glob_c <= 158) and (59 <= glob_r <= 57),
+        (158 <= glob_c <= 161) and (57 <= glob_r <= 30),
+        (158 <= glob_c <= 150) and (30 <= glob_r <= 31),
+        (153 <= glob_c <= 150) and (34 <= glob_r <= 31),
+        (168 <= glob_c <= 254) and (134 <= glob_r <= 140),
+        (282 >= glob_r >= 277) and (436 >= glob_c >= 0), # Include Viridian Pokecenter everywhere
+        (173 <= glob_r <= 178) and (436 >= glob_c >= 0), # Include Pewter Pokecenter everywhere
+        (131 <= glob_r <= 136) and (436 >= glob_c >= 0), # Include Route 4 Pokecenter everywhere
+        (137 <= glob_c <= 197) and (82 <= glob_r <= 142), # Mt Moon Route 3
+        (137 <= glob_c <= 187) and (53 <= glob_r <= 103), # Mt Moon B1F
+        (137 <= glob_c <= 197) and (16 <= glob_r <= 66), # Mt Moon B2F
+        (137 <= glob_c <= 436) and (82 <= glob_r <= 444),  # Most of the rest of map after Mt Moon
+        # (0 <= glob_c <= 436) and (0 <= glob_r <= 444),  # Whole map included
+    ]
+            return any(include_conditions)
