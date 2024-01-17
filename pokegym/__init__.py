@@ -1,1 +1,1 @@
-from pokegym.environment import Base, Environment
+from environment import Environment
