@@ -15,6 +15,7 @@ from pathlib import Path
 import mediapy as media
 import subprocess
 from pokegym import data
+from pokegym.bin.ram_reader.red_ram_api import *
 
 from pokegym.pyboy_binding import (
     ACTIONS,
@@ -90,7 +91,7 @@ class Base:
         rom_path="pokemon_red.gb",
         state_path=None,
         headless=True,
-        save_video=False,
+        save_video=True,
         quiet=False,
         **kwargs,
     ):
@@ -98,8 +99,9 @@ class Base:
         # Change state_path if you want to load off a different state file to start
         if state_path is None:
             state_path = __file__.rstrip("environment.py") + "Bulbasaur.state"
+            # state_path = __file__.rstrip("environment.py") + "cut2.state"
         # Make the environment
-        self.game, self.screen = make_env(rom_path, headless, quiet, save_video=False, **kwargs)
+        self.game, self.screen = make_env(rom_path, headless, quiet, save_video=True, **kwargs)
         self.initial_states = [open_state_file(state_path)]
         self.save_video = save_video
         self.headless = headless
@@ -227,12 +229,27 @@ class Environment(Base):
         rom_path="pokemon_red.gb",
         state_path=None,
         headless=True,
-        save_video=False,
+        save_video=True,
         quiet=False,
         verbose=False,
         **kwargs,
     ):
         super().__init__(rom_path, state_path, headless, save_video, quiet, **kwargs)
+        # self.menus = Menus(self) # should actually be self.api.menus (Game owns everything)
+        self.last_menu_state = 'None'
+        self.menus_rewards = 0
+        self.sel_cancel = 0
+        self.start_sel = 0
+        self.none_start = 0
+        self.pk_cancel_menu = 0
+        self.pk_menu = 0
+        self.cut_nothing = 0
+        self.different_menu = 'None'
+        
+        
+        
+        
+        
         self.counts_map = np.zeros((444, 436))
         self.verbose = verbose
         self.screenshot_counter = 0
@@ -345,6 +362,8 @@ class Environment(Base):
                 f.write(f"Moves: {', '.join(pokemon['moves'])}\n")
                 f.write("\n")  # Add a newline between Pokémon
     
+    
+    
     def env_info_to_csv(self, env_id, reset, x, y, map_n, csv_file_path):
         df = pd.DataFrame([[env_id, reset, x, y, map_n]])
         df.to_csv(csv_file_path, mode='a', header=not csv_file_path.exists(), index=False)
@@ -413,6 +432,57 @@ class Environment(Base):
             # Manhattan distance
             return abs(npc_y - player_y) + abs(npc_x - player_x)
         return 1000
+    
+    # def menu_rewards(self):
+    #     # print(f'self.last_menu_state={self.last_menu_state}')
+        
+    #     menu_state = self.api.game_state.name
+
+    #     start_menu_pk = 'START_MENU_POKEMON'
+    #     select_pk_menu = 'SELECT_POKEMON_'
+    #     pokecenter_cancel_menu = 'POKECENTER_CANCEL'
+    #     menu_rewards = 0
+    #     if menu_state == 'EXPLORING':
+    #         self.last_menu_state = 'EXPLORING'
+    #         return menu_rewards
+    #     if menu_state != self.last_menu_state:
+    #         self.different_menu = True
+    #     # Reward cutting (trying to use Cut) even if cutting nothing
+    #     # Menu state stays the same for 'Cut failed' dialogue vs changing to SELECT_POKEMON_
+    #     if menu_state == 'POKECENTER_CANCEL' and self.different_menu == True:
+    #         self.cut_nothing += 1
+    #         menu_rewards += 0.5 / (self.cut_nothing ** 2)     
+        
+    #     if start_menu_pk in menu_state:
+    #         # print(f'{start_menu_pk} in menu_state=True')
+    #         if self.last_menu_state == 'None' or self.last_menu_state == 'EXPLORING':
+    #             self.none_start += 1
+    #             menu_rewards += 0.00005 / (self.none_start ** 2)
+    #         self.last_menu_state = start_menu_pk
+            
+    #     if select_pk_menu in menu_state and pokecenter_cancel_menu not in self.last_menu_state:
+    #         # print(f'{select_pk_menu} in menu_state=True')
+    #         self.pk_menu += 1
+    #         if self.last_menu_state == start_menu_pk:
+    #             self.start_sel += 1
+    #             menu_rewards += 0.000055 / (self.start_sel ** 2)
+    #         self.last_menu_state = select_pk_menu
+    #         menu_rewards += 0.00005 / (self.pk_menu ** 2)
+            
+            
+    #     if pokecenter_cancel_menu in menu_state and pokecenter_cancel_menu not in self.last_menu_state:
+    #         # print(f'{pokecenter_cancel_menu} in menu_state:=True')
+    #         self.pk_cancel_menu += 1
+    #         if self.last_menu_state == select_pk_menu:
+    #             self.sel_cancel += 1
+    #             menu_rewards += 0.000055 / (self.sel_cancel ** 2)
+    #         self.last_menu_state = pokecenter_cancel_menu
+    #         menu_rewards += 0.00005 / (self.pk_cancel_menu ** 2)
+
+        
+    #     return menu_rewards
+    
+
     
     # Only reward exploration for the below coordinates
     # Default: path through Mt. Moon, then whole map rewardable.
@@ -530,6 +600,7 @@ class Environment(Base):
                 lambda: np.zeros((255, 255, 1), dtype=np.uint8)
             )
 
+        self.api = Game(self.game) # import this class for api BET
         self.time = 0
         self.max_episode_steps = max_episode_steps
         self.reward_scale = reward_scale
@@ -558,6 +629,17 @@ class Environment(Base):
             fast_video=fast_video,
         )
         self.time += 1
+        # print(f'self.time={self.time}')
+
+        # self.api.process_game_states()
+        # print(f'self.api.game_state={self.api.game_state.name}')
+        # 'START_MENU_POKEMON'
+        # 'SELECT_POKEMON_'
+        # 'POKECENTER_CANCEL'
+        
+        # # Reward menuing that can later be used to access Cut
+        # self.menus_rewards = self.menu_rewards()
+        
         # self.time += 1
         if self.save_video:
             self.add_video_frame()
@@ -589,7 +671,7 @@ class Environment(Base):
         self.update_pokedex()
         self.update_moves_obtained()
 
-        exploration_reward = 0.015 * len(self.seen_coords) # BET: default 0.01
+        exploration_reward = 0.013 * len(self.seen_coords) # BET: default 0.01
         self.update_heat_map(r, c, map_n)
 
         # Level reward
@@ -785,8 +867,79 @@ class Environment(Base):
             + poke_has_flash_reward
             + poke_has_fly_reward
             + poke_has_surf_reward
-            + poke_has_strength_reward            
+            + poke_has_strength_reward   
+            + self.menus_rewards         
         )
+
+        # info = {}
+        # info = {
+        #         "reward": {
+        #             "delta": reward,
+        #             "event": event_reward,
+        #             "level": level_reward,
+        #             "opponent_level": opponent_level_reward,
+        #             "death": death_reward,
+        #             "badges": badges_reward,
+        #             "bill_saved_reward": bill_reward,
+        #             "hm_count_reward": hm_reward,
+        #             "got_hm01_reward": got_hm01_reward,
+        #             "rubbed_captains_back_reward": rubbed_captains_back_reward,
+        #             "ss_anne_state_reward": ss_anne_state_reward,
+        #             "ss_anne_left_reward": ss_anne_left_reward,
+        #             "walked_past_guard_after_ss_anne_left_reward": walked_past_guard_after_ss_anne_left_reward,
+        #             "started_walking_out_of_dock_reward": started_walking_out_of_dock_reward,
+        #             "walked_out_of_dock_reward": walked_out_of_dock_reward, 
+        #             "exploration": exploration_reward,
+        #             "explore_npcs_reward": explore_npcs_reward,
+        #             "seen_pokemon_reward": seen_pokemon_reward,
+        #             "caught_pokemon_reward": caught_pokemon_reward,
+        #             "moves_obtained_reward": moves_obtained_reward,
+        #             "hidden_obj_count_reward": explore_hidden_objs_reward,
+        #             "poke_has_cut_reward": poke_has_cut_reward,
+        #             "poke_has_flash_reward": poke_has_flash_reward,
+        #             "poke_has_fly_reward": poke_has_fly_reward,
+        #             "poke_has_surf_reward": poke_has_surf_reward,
+        #             "poke_has_strength_reward": poke_has_strength_reward,
+        #             "used_cut_reward": used_cut_reward,
+        #         },
+        #         "maps_explored": len(self.seen_maps),
+        #         "party_size": party_size,
+        #         "highest_pokemon_level": max(party_levels, default=0),
+        #         "total_party_level": sum(party_levels),
+        #         "deaths": self.death_count,
+        #         "bill_saved": bill_state,
+        #         "hm_count": hm_count,
+        #         "got_hm01": got_hm01,
+        #         "rubbed_captains_back": rubbed_captains_back,
+        #         "ss_anne_left": ss_anne_left,
+        #         "ss_anne_state": ss_anne_state,
+        #         "walked_past_guard_after_ss_anne_left": walked_past_guard_after_ss_anne_left,
+        #         "started_walking_out_of_dock": started_walking_out_of_dock,
+        #         "walked_out_of_dock": walked_out_of_dock,
+        #         "badge_1": float(badges >= 1),
+        #         "badge_2": float(badges >= 2),
+        #         "event": events,
+        #         "money": money,
+        #         "pokemon_exploration_map": self.counts_map,
+        #         "seen_npcs_count": len(self.seen_npcs),
+        #         "seen_pokemon": sum(self.seen_pokemon),
+        #         "caught_pokemon": sum(self.caught_pokemon),
+        #         "moves_obtained": sum(self.moves_obtained),
+        #         "hidden_obj_count": len(self.seen_hidden_objs),
+        #         "poke_has_cut": poke_has_cut,
+        #         "poke_has_flash": poke_has_flash,
+        #         "poke_has_fly": poke_has_fly,
+        #         "poke_has_surf": poke_has_surf,
+        #         "poke_has_strength": poke_has_strength,
+        #         "used_cut": self.used_cut,
+        #         "menus_reward": self.menus_rewards,
+        #         "none->start": self.none_start,
+        #         "start->sel": self.start_sel,
+        #         "sel->cancel": self.sel_cancel,
+        #         "cut_nothing": self.cut_nothing,
+        #         # "logging": logging,
+        #         # "env_uuid": self.env_id,
+        #     }
 
         # Subtract previous reward
         # TODO: Don't record large cumulative rewards in the first place
@@ -799,6 +952,8 @@ class Environment(Base):
             self.last_reward = nxt_reward
 
         info = {}
+        
+        
         done = self.time >= self.max_episode_steps
         if self.save_video and done:
             self.full_frame_writer.close()
@@ -845,7 +1000,8 @@ class Environment(Base):
                     "poke_has_fly_reward": poke_has_fly_reward,
                     "poke_has_surf_reward": poke_has_surf_reward,
                     "poke_has_strength_reward": poke_has_strength_reward,
-                    "used_cut_reward": self.used_cut,
+                    "used_cut_reward": used_cut_reward,
+                    "menus_reward": self.menus_rewards,
                 },
                 "maps_explored": len(self.seen_maps),
                 "party_size": party_size,
@@ -877,11 +1033,12 @@ class Environment(Base):
                 "poke_has_surf": poke_has_surf,
                 "poke_has_strength": poke_has_strength,
                 "used_cut": self.used_cut,
+                "cut_nothing": self.cut_nothing,
                 # "logging": logging,
                 # "env_uuid": self.env_id,
             }
 
-        if self.verbose:
+        if self.verbose:            
             print(
                 f'number of signs: {ram_map.signs(self.game)}, number of sprites: {ram_map.sprites(self.game)}\n',
                 f"steps: {self.time}\n",
