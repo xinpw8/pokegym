@@ -1,5 +1,6 @@
 from pdb import set_trace as T
 from io import BytesIO
+import os
 
 from pyboy import PyBoy
 from pyboy.utils import WindowEvent
@@ -68,6 +69,17 @@ def load_pyboy_state(pyboy, state):
     '''Reset state stream and load it into PyBoy'''
     state.seek(0)
     pyboy.load_state(state)
+
+def save_pyboy_state(pyboy, path):
+    states_dir = os.path.join(path, 'states')
+    dest_path = os.path.join(states_dir, f"{os.path.basename(path)}.state")
+
+    # Create the 'states' directory if it doesn't exist
+    os.makedirs(states_dir, exist_ok=True)
+
+    # Save the PyBoy state to the specified file
+    with open(dest_path, 'wb') as file:
+        pyboy.save_state(file)
 
 def run_action_on_emulator(pyboy, screen, action,
         headless=True, fast_video=True, frame_skip=24):

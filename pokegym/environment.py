@@ -16,6 +16,10 @@ import mediapy as media
 import subprocess
 from pokegym import data
 from pokegym.bin.ram_reader.red_ram_api import *
+from . import checkpoint_tracker
+
+from torch.profiler import profile, ProfilerActivity, schedule
+import time
 
 from pokegym.pyboy_binding import (
     ACTIONS,
@@ -23,9 +27,12 @@ from pokegym.pyboy_binding import (
     open_state_file,
     load_pyboy_state,
     run_action_on_emulator,
+    save_pyboy_state,
 )
 from pokegym import ram_map, game_map
+import multiprocessing
 
+            
 # Testing environment w/ no AI
 # pokegym.play from pufferlib folder
 def play():
@@ -37,7 +44,7 @@ def play():
         disable_input=False,
         sound=False,
         sound_emulated=False,
-        verbose=True,
+        verbose=False,
     )
 
     env.reset()
@@ -76,7 +83,7 @@ def play():
                 observation, reward, done, _, info = env.step(
                     action_index, fast_video=False
                 )
-
+                
                 # Check for game over
                 if done:
                     print(f"{done}")
@@ -86,37 +93,82 @@ def play():
                 print(f"new Reward: {reward}\n")
 
 class Base:
+    # Shared counter among processes
+    counter_lock = multiprocessing.Lock()
+    counter = multiprocessing.Value('i', 0)
+
     def __init__(
         self,
         rom_path="pokemon_red.gb",
         state_path=None,
         headless=True,
-        save_video=True,
+        save_video=False,
         quiet=False,
         **kwargs,
     ):
         """Creates a PokemonRed environment"""
+        
+        # Increment counter atomically to get unique sequential identifier
+        with Base.counter_lock:
+            env_id = Base.counter.value
+            Base.counter.value += 1
+        
+        with open("experiments/running_experiment.txt", "r") as file:
+        # with open("experiments/test_exp.txt", "r") as file: # uncomment for testing while run is currently running; comment 116 and do same line 95-99 clean_pufferl
+            exp_name = file.read()
+                
         # Change state_path if you want to load off a different state file to start
         if state_path is None:
-            state_path = __file__.rstrip("environment.py") + "Bulbasaur.state"
-            # state_path = __file__.rstrip("environment.py") + "cut2.state"
-        # Make the environment
-        self.game, self.screen = make_env(rom_path, headless, quiet, save_video=True, **kwargs)
+            state_folder = f'env_{env_id}'
+            specific_state_path = os.path.join(os.getcwd(), "experiments", f'{exp_name}', "sessions", state_folder, "states", f'{state_folder}.state')
+            if os.path.exists(specific_state_path):
+                state_path = specific_state_path
+            else:
+                state_path = os.path.join(__file__.rstrip("environment.py"), "Bulbasaur.state")
+            # state_path = __file__.rstrip("environment.py") + "Bulbasaur.state"
+            
+        print(f"env_{env_id} using state file: {state_path}")  # Print the state file being used
+
+        self.game, self.screen = make_env(rom_path, headless, quiet, save_video=False, **kwargs)
+        
+        self.exp_path = Path(f'experiments/{str(exp_name)}')
+        self.env_id = f'env_{env_id}'  # Use the sequential identifier as part of the name
+        self.s_path = Path(f'{str(self.exp_path)}/sessions/{str(self.env_id)}')
+
+# class Base:
+#     def __init__(
+#         self,
+#         rom_path="pokemon_red.gb",
+#         state_path=None,
+#         headless=True,
+#         save_video=False,
+#         quiet=False,
+#         **kwargs,
+#     ):
+#         """Creates a PokemonRed environment"""
+#         # Change state_path if you want to load off a different state file to start
+#         if state_path is None:
+#             state_path = __file__.rstrip("environment.py") + "Bulbasaur.state"
+#             # state_path = __file__.rstrip("environment.py") + "cut2.state"
+#         # Make the environment
+#         self.game, self.screen = make_env(rom_path, headless, quiet, save_video=False, **kwargs)
         self.initial_states = [open_state_file(state_path)]
         self.save_video = save_video
         self.headless = headless
-        self.mem_padding = 2 # not used - present for consistency
-        self.memory_shape = 80 # not used - present for consistency
         self.use_screen_memory = True
         self.screenshot_counter = 0
+        self.step_states = []
         
-        # Logging initializations
-        with open("experiments/running_experiment.txt", "r") as file:
-        # with open("experiments/test_exp.txt", "r") as file: # for testing video writing BET
-            exp_name = file.read()
-        self.exp_path = Path(f'experiments/{str(exp_name)}')
-        self.env_id = Path(f'session_{str(uuid.uuid4())[:8]}')
-        self.s_path = Path(f'{str(self.exp_path)}/sessions/{str(self.env_id)}')
+        # BET nimixx api
+        self.api = Game(self.game) # import this class for api BET
+        
+        # # Logging initializations
+        # with open("experiments/running_experiment.txt", "r") as file:
+        # # with open("experiments/test_exp.txt", "r") as file: # for testing video writing BET
+        #     exp_name = file.read()
+        # self.exp_path = Path(f'experiments/{str(exp_name)}')
+        # self.env_id = Path(f'session_{str(uuid.uuid4())[:8]}')
+        # self.s_path = Path(f'{str(self.exp_path)}/sessions/{str(self.env_id)}')
         
         # Manually create running_experiment.txt at pufferlib/experiments/running_experiment.txt
         # Set logging frequency in steps and log_file_aggregator.py path here.
@@ -158,12 +210,17 @@ class Base:
             # ss_dir / Path(f'ss_{x}_y_{y}_steps_{steps}_{comment}.jpeg'),
             ss_dir / Path(f'{self.screenshot_counter}_{event}_{map_n}.jpeg'),
             self.screen.screen_ndarray())  # (144, 160, 3)
-
+    
     def save_state(self):
         state = io.BytesIO()
         state.seek(0)
         self.game.save_state(state)
-        self.initial_states.append(state)
+        self.initial_states.append(state) 
+    
+    def save_state_step(self):
+        state = io.BytesIO()
+        state.seek(0)
+        return self.game.save_state(state)
     
     def load_last_state(self):
         return self.initial_states[len(self.initial_states) - 1]
@@ -229,7 +286,7 @@ class Environment(Base):
         rom_path="pokemon_red.gb",
         state_path=None,
         headless=True,
-        save_video=True,
+        save_video=False,
         quiet=False,
         verbose=False,
         **kwargs,
@@ -245,10 +302,6 @@ class Environment(Base):
         self.pk_menu = 0
         self.cut_nothing = 0
         self.different_menu = 'None'
-        
-        
-        
-        
         
         self.counts_map = np.zeros((444, 436))
         self.verbose = verbose
@@ -362,8 +415,6 @@ class Environment(Base):
                 f.write(f"Moves: {', '.join(pokemon['moves'])}\n")
                 f.write("\n")  # Add a newline between Pokémon
     
-    
-    
     def env_info_to_csv(self, env_id, reset, x, y, map_n, csv_file_path):
         df = pd.DataFrame([[env_id, reset, x, y, map_n]])
         df.to_csv(csv_file_path, mode='a', header=not csv_file_path.exists(), index=False)
@@ -420,6 +471,13 @@ class Environment(Base):
         # Update last_map for the next iteration
         self.last_map = current_map
 
+    def pass_states(self):
+        num_envs = 64
+        step_length = 1310720 / num_envs
+        if self.reset_count == step_length:
+           state = self.save_state_step()
+           return state
+    
     def find_neighboring_npc(self, npc_bank, npc_id, player_direction, player_x, player_y) -> int:
         npc_y = ram_map.npc_y(self.game, npc_id, npc_bank)
         npc_x = ram_map.npc_x(self.game, npc_id, npc_bank)
@@ -433,57 +491,52 @@ class Environment(Base):
             return abs(npc_y - player_y) + abs(npc_x - player_x)
         return 1000
     
-    # def menu_rewards(self):
-    #     # print(f'self.last_menu_state={self.last_menu_state}')
+    def menu_rewards(self):
+        # print(f'self.last_menu_state={self.last_menu_state}')
         
-    #     menu_state = self.api.game_state.name
+        menu_state = self.api.game_state.name
 
-    #     start_menu_pk = 'START_MENU_POKEMON'
-    #     select_pk_menu = 'SELECT_POKEMON_'
-    #     pokecenter_cancel_menu = 'POKECENTER_CANCEL'
-    #     menu_rewards = 0
-    #     if menu_state == 'EXPLORING':
-    #         self.last_menu_state = 'EXPLORING'
-    #         return menu_rewards
-    #     if menu_state != self.last_menu_state:
-    #         self.different_menu = True
-    #     # Reward cutting (trying to use Cut) even if cutting nothing
-    #     # Menu state stays the same for 'Cut failed' dialogue vs changing to SELECT_POKEMON_
-    #     if menu_state == 'POKECENTER_CANCEL' and self.different_menu == True:
-    #         self.cut_nothing += 1
-    #         menu_rewards += 0.5 / (self.cut_nothing ** 2)     
+        start_menu_pk = 'START_MENU_POKEMON'
+        select_pk_menu = 'SELECT_POKEMON_'
+        pokecenter_cancel_menu = 'POKECENTER_CANCEL'
+        menu_reward_val = 0
+        if menu_state == 'EXPLORING':
+            self.last_menu_state = 'EXPLORING'
+            return menu_reward_val
+        if menu_state != self.last_menu_state:
+            self.different_menu = True
+        # Reward cutting (trying to use Cut) even if cutting nothing
+        # Menu state stays the same for 'Cut failed' dialogue vs changing to SELECT_POKEMON_
+        if menu_state == 'POKECENTER_CANCEL' and self.different_menu == True:
+            self.cut_nothing += 1
+            menu_reward_val += 0.5 / (self.cut_nothing ** 2)     
         
-    #     if start_menu_pk in menu_state:
-    #         # print(f'{start_menu_pk} in menu_state=True')
-    #         if self.last_menu_state == 'None' or self.last_menu_state == 'EXPLORING':
-    #             self.none_start += 1
-    #             menu_rewards += 0.00005 / (self.none_start ** 2)
-    #         self.last_menu_state = start_menu_pk
+        if start_menu_pk in menu_state:
+            # print(f'{start_menu_pk} in menu_state=True')
+            if self.last_menu_state == 'None' or self.last_menu_state == 'EXPLORING':
+                self.none_start += 1
+                menu_reward_val += 0.00005 / (self.none_start ** 2)
+            self.last_menu_state = start_menu_pk
             
-    #     if select_pk_menu in menu_state and pokecenter_cancel_menu not in self.last_menu_state:
-    #         # print(f'{select_pk_menu} in menu_state=True')
-    #         self.pk_menu += 1
-    #         if self.last_menu_state == start_menu_pk:
-    #             self.start_sel += 1
-    #             menu_rewards += 0.000055 / (self.start_sel ** 2)
-    #         self.last_menu_state = select_pk_menu
-    #         menu_rewards += 0.00005 / (self.pk_menu ** 2)
+        if select_pk_menu in menu_state and pokecenter_cancel_menu not in self.last_menu_state:
+            # print(f'{select_pk_menu} in menu_state=True')
+            self.pk_menu += 1
+            if self.last_menu_state == start_menu_pk:
+                self.start_sel += 1
+                menu_reward_val += 0.000055 / (self.start_sel ** 2)
+            self.last_menu_state = select_pk_menu
+            menu_reward_val += 0.00005 / (self.pk_menu ** 2)      
             
-            
-    #     if pokecenter_cancel_menu in menu_state and pokecenter_cancel_menu not in self.last_menu_state:
-    #         # print(f'{pokecenter_cancel_menu} in menu_state:=True')
-    #         self.pk_cancel_menu += 1
-    #         if self.last_menu_state == select_pk_menu:
-    #             self.sel_cancel += 1
-    #             menu_rewards += 0.000055 / (self.sel_cancel ** 2)
-    #         self.last_menu_state = pokecenter_cancel_menu
-    #         menu_rewards += 0.00005 / (self.pk_cancel_menu ** 2)
+        if pokecenter_cancel_menu in menu_state and pokecenter_cancel_menu not in self.last_menu_state:
+            # print(f'{pokecenter_cancel_menu} in menu_state:=True')
+            self.pk_cancel_menu += 1
+            if self.last_menu_state == select_pk_menu:
+                self.sel_cancel += 1
+                menu_reward_val += 0.000055 / (self.sel_cancel ** 2)
+            self.last_menu_state = pokecenter_cancel_menu
+            menu_reward_val += 0.00005 / (self.pk_cancel_menu ** 2)
+        return menu_reward_val
 
-        
-    #     return menu_rewards
-    
-
-    
     # Only reward exploration for the below coordinates
     # Default: path through Mt. Moon, then whole map rewardable.
     def rewardable_coords(self, glob_c, glob_r):
@@ -575,7 +628,7 @@ class Environment(Base):
         #     else:
         #         return False
 
-    def reset(self, seed=None, options=None, max_episode_steps=20480, reward_scale=4.0):
+    def reset(self, seed=None, options=None, max_episode_steps=480, reward_scale=4.0): # 20480
         """Resets the game. Seeding is NOT supported"""
         load_pyboy_state(self.game, self.load_last_state()) # load a saved state
         
@@ -583,11 +636,10 @@ class Environment(Base):
             base_dir = self.s_path
             base_dir.mkdir(parents=True, exist_ok=True)
             full_name = Path(f'reset_{self.reset_count}').with_suffix('.mp4')
-            self.full_frame_writer = media.VideoWriter(base_dir / full_name, (144, 160), fps=60)
+            self.full_frame_writer = media.VideoWriter(base_dir / full_name, (144, 160), fps=30)
             self.full_frame_writer.__enter__()
         
-      
-        self.full_name_log = Path(f'pokemon_party_log').with_suffix('.txt')
+        self.full_name_log = Path(f'{self.env_id}_log').with_suffix('.txt')
         self.write_to_log()
             # Aggregate the data in each env log file. Default location of file: pufferlib/log_file_aggregator.py
         try:
@@ -600,7 +652,7 @@ class Environment(Base):
                 lambda: np.zeros((255, 255, 1), dtype=np.uint8)
             )
 
-        self.api = Game(self.game) # import this class for api BET
+        self.wall_time = time.time()
         self.time = 0
         self.max_episode_steps = max_episode_steps
         self.reward_scale = reward_scale
@@ -628,23 +680,24 @@ class Environment(Base):
             self.headless,
             fast_video=fast_video,
         )
+        step_timer_start = time.time()
         self.time += 1
-        # print(f'self.time={self.time}')
-
-        # self.api.process_game_states()
+        # s_process_game_states_time = time.time()
+        # Call nimixx api
+        self.api.process_game_states()
         # print(f'self.api.game_state={self.api.game_state.name}')
         # 'START_MENU_POKEMON'
         # 'SELECT_POKEMON_'
         # 'POKECENTER_CANCEL'
-        
-        # # Reward menuing that can later be used to access Cut
-        # self.menus_rewards = self.menu_rewards()
-        
+     
+        # Reward menuing that can later be used to access Cut
+        self.menus_rewards = self.menu_rewards()
+
         # self.time += 1
         if self.save_video:
             self.add_video_frame()
         
-        # Exploration reward
+        # Exploration reward     
         r, c, map_n = ram_map.position(self.game)
             # Convert local position to global position
         try:
@@ -667,13 +720,14 @@ class Environment(Base):
                 self.seen_maps.add(map_n)
                 self.talk_to_npc_count[map_n] = 0  # Initialize NPC talk count for this new map
                 self.save_state()
-     
+                checkpoint_tracker.checkpoint_met(map_n, self.wall_time)
+    
         self.update_pokedex()
         self.update_moves_obtained()
 
-        exploration_reward = 0.013 * len(self.seen_coords) # BET: default 0.01
+        exploration_reward = 0.01  * len(self.seen_coords) # BET: default 0.01
         self.update_heat_map(r, c, map_n)
-
+        
         # Level reward
         # Tapers after 30 to prevent overleveling
         party_size, party_levels = ram_map.party(self.game)
@@ -707,7 +761,7 @@ class Environment(Base):
 
         if self.log and self.time % 4000 == 0:
             # print(f'self.time % 4000 == 0 TRUE')
-            self.full_name_log = Path(f'pokemon_party_log').with_suffix('.txt')
+            self.full_name_log = Path(f'{self.env_id}_log').with_suffix('.txt')
             self.write_to_log()
     
         # Aggregate the data in each env log file. Default script location: pufferlib/log_file_aggregator.py
@@ -827,7 +881,7 @@ class Environment(Base):
                 minv = 1000
                 for npc_bank in range(1):
                     for npc_id in range(1, ram_map.sprites(self.game) + 15):
-                        npc_dist = self.find_neighboring_npc(npc_bank, npc_id, player_direction, player_x, player_y)
+                        npc_dist = self.find_neighboring_npc(npc_bank, npc_id, player_direction, player_x, player_y)                    
                         if npc_dist < minv:
                             mindex = (npc_bank, npc_id)
                             minv = npc_dist        
@@ -957,7 +1011,13 @@ class Environment(Base):
         done = self.time >= self.max_episode_steps
         if self.save_video and done:
             self.full_frame_writer.close()
+            
+        # with open('ztimes.txt', 'w') as f:
+        #     f.write(f'{average_times(self.time)}')
+        
         if done:
+            save_pyboy_state(self.game, self.s_path)
+        
             # self.done_counter += 1
             # # for testing video writing BET
             # # print(f'DONE PASSED={self.done_counter}')
@@ -1002,6 +1062,7 @@ class Environment(Base):
                     "poke_has_strength_reward": poke_has_strength_reward,
                     "used_cut_reward": used_cut_reward,
                     "menus_reward": self.menus_rewards,
+                    "healing_reward": healing_reward,
                 },
                 "maps_explored": len(self.seen_maps),
                 "party_size": party_size,
@@ -1034,8 +1095,11 @@ class Environment(Base):
                 "poke_has_strength": poke_has_strength,
                 "used_cut": self.used_cut,
                 "cut_nothing": self.cut_nothing,
+                "total_healing": self.total_healing,
+                # "200_step_pyboy_save_state": self.pass_states(),
                 # "logging": logging,
-                # "env_uuid": self.env_id,
+                "env_uuid": self.env_id,
+                "save_state": self.save_state_step(),
             }
 
         if self.verbose:            
@@ -1057,5 +1121,5 @@ class Environment(Base):
                 f"ai reward: {reward}\n",
                 f"Info: {info}\n",
             )
-        
+
         return self.render(), reward, done, done, info
