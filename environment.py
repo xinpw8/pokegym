@@ -312,7 +312,7 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
     'poke_type_ids': Box(0, 255, (12, 2), uint8), 'vector': Box(-1.0, 1.0, (99,), float32))
         '''
 
-        breakpoint()
+        # breakpoint()
         head = 'headless' if config['headless'] else 'SDL2'
 
         self.pyboy = PyBoy(
