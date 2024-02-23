@@ -68,21 +68,34 @@ save_freq = 2048 * 10 * 2
 n_steps = int(5120 // cpu_multiplier) * 1 # to maintain ~163_840 steps per training iteration
 sess_id = str(uuid.uuid4())[:8]
 # sess_path = Path(f'session_{sess_id}_env8_lr3e-4_ent01_bs512_5120_81920_0.5vf')
-state_path = __file__.rstrip('environment.py') + 'has_pokedex_nballs.state'
-state_dir = __file__.rstrip('environment.py') 
+# state_path = __file__.rstrip('environment.py') + 'has_pokedex_nballs.state'
+state_path = '/home/daa/puffer0.5.2_iron/obs_space_experiments/pokegym/has_pokedex_nballs_noanim.state'
 sess_path = Path(f'session_{sess_id}')
+
+state_dir = Path(__file__).parent  # Gets the directory of the current script
+init_state_path = state_dir / 'has_pokedex_nballs_noanim.state'
 
 num_cpu = int(32 * cpu_multiplier)  # Also sets the number of episodes per training iteration
 
 env_config = {
-            'headless': True, 'save_final_state': True, 
+            'headless': True, 
+            'save_final_state': True, 
             'early_stop': True,  # resumed early stopping to ensure reward signal
-            'action_freq': 24, 'init_state': 'has_pokedex_nballs_noanim.state', 'max_steps': ep_length, 
+            'action_freq': 24, 
+            'init_state': 'has_pokedex_nballs_noanim.state', 
+            'max_steps': ep_length, 
             # 'env_max_steps': env_max_steps,
-            'print_rewards': True, 'save_video': False, 'fast_video': True, 'session_path': sess_path,
-            'gb_path': 'PokemonRed.gb', 'debug': False, 'sim_frame_dist': 2_000_000.0, 
-            'use_screen_explore': False, 'reward_scale': 4, 
-            'extra_buttons': False, 'restricted_start_menu': False, 
+            'print_rewards': True, 
+            'save_video': False, 
+            'fast_video': True, 
+            'session_path': sess_path,
+            'gb_path': 'PokemonRed.gb', 
+            'debug': False, 
+            'sim_frame_dist': 2_000_000.0, 
+            'use_screen_explore': False, 
+            'reward_scale': 4, 
+            'extra_buttons': False, 
+            'restricted_start_menu': False, 
             'noop_button': True,
             'swap_button': True,
             'enable_item_manager': True,
@@ -140,9 +153,11 @@ if file_name and not exists(file_name + '.pt'):
 
 class Environment(Env):
     def __init__(
-        self, config=None):
+        self, config=env_config):
 
-        self.debug = config['debug']
+        # self.debug = config['debug']
+        config['init_state'] = str(init_state_path)
+        
         self.s_path = config['session_path']
         self.save_final_state = config['save_final_state']
         self.print_rewards = config['print_rewards']
@@ -258,6 +273,9 @@ class Environment(Env):
         )
         self.output_vector_shape = (99, )
 
+
+
+
         # Set these in ALL subclasses
         self.action_space = spaces.Discrete(len(self.valid_actions))
         # self.observation_space = spaces.Box(low=0, high=255, shape=self.output_full, dtype=np.uint8)
@@ -281,6 +299,20 @@ class Environment(Env):
             # 'in_battle_mask': spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
         })
 
+        # Something happens to this dict where it is a Box when it gets to torch.py...2/23/24
+        '''
+(Pdb) self.observation_space
+Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0, (128, 1), float32), 
+    'image': Box(0, 255, (3, 72, 80), uint8), 'item_ids': Box(0, 255, (20,), uint8), 
+    'item_quantity': Box(-1.0, 1.0, (20, 1), float32), 'map_ids': Box(0, 255, (10,), uint8), 
+    'map_step_since': Box(-1.0, 1.0, (10, 1), float32), 'minimap': Box(0.0, 1.0, (14, 9, 10), float32), 
+    'minimap_sprite': Box(0, 390, (9, 10), int16), 'minimap_warp': Box(0, 830, (9, 10), int16), 
+    'poke_all': Box(0.0, 1.0, (12, 23), float32), 'poke_ids': Box(0, 255, (12,), uint8), 
+    'poke_move_ids': Box(0, 255, (12, 4), uint8), 'poke_move_pps': Box(0.0, 1.0, (12, 4, 2), float32), 
+    'poke_type_ids': Box(0, 255, (12, 2), uint8), 'vector': Box(-1.0, 1.0, (99,), float32))
+        '''
+
+        breakpoint()
         head = 'headless' if config['headless'] else 'SDL2'
 
         self.pyboy = PyBoy(
