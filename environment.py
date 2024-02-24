@@ -44,7 +44,7 @@ from stable_baselines3.common.utils import set_random_seed
 from stable_baselines3.common.callbacks import CheckpointCallback, CallbackList
 from typing import Callable
 
-
+from pokegym.global_map import GLOBAL_MAP_SHAPE, local_to_global
 
 # from pokegym.pyboy_binding import (ACTIONS, make_env, open_state_file,
 #     load_pyboy_state, run_action_on_emulator)
@@ -60,71 +60,6 @@ from typing import Callable
 #         'PRESS_BUTTON_SELECT': 7,
 #         # Add more mappings if necessary
 #     }
-
-use_wandb_logging = True
-cpu_multiplier = 0.1  # For R9 7950x: 1.0 for 32 cpu, 1.25 for 40 cpu, 1.5 for 48 cpu
-ep_length = 1024 * 1000 * 30  # 30m steps
-save_freq = 2048 * 10 * 2
-n_steps = int(5120 // cpu_multiplier) * 1 # to maintain ~163_840 steps per training iteration
-sess_id = str(uuid.uuid4())[:8]
-# sess_path = Path(f'session_{sess_id}_env8_lr3e-4_ent01_bs512_5120_81920_0.5vf')
-# state_path = __file__.rstrip('environment.py') + 'has_pokedex_nballs.state'
-state_path = '/home/daa/puffer0.5.2_iron/obs_space_experiments/pokegym/has_pokedex_nballs_noanim.state'
-sess_path = Path(f'session_{sess_id}')
-
-state_dir = Path(__file__).parent  # Gets the directory of the current script
-init_state_path = state_dir / 'has_pokedex_nballs_noanim.state'
-
-num_cpu = int(32 * cpu_multiplier)  # Also sets the number of episodes per training iteration
-
-env_config = {
-            'headless': True, 
-            'save_final_state': True, 
-            'early_stop': True,  # resumed early stopping to ensure reward signal
-            'action_freq': 24, 
-            'init_state': 'has_pokedex_nballs_noanim.state', 
-            'max_steps': ep_length, 
-            # 'env_max_steps': env_max_steps,
-            'print_rewards': True, 
-            'save_video': False, 
-            'fast_video': True, 
-            'session_path': sess_path,
-            'gb_path': 'PokemonRed.gb', 
-            'debug': False, 
-            'sim_frame_dist': 2_000_000.0, 
-            'use_screen_explore': False, 
-            'reward_scale': 4, 
-            'extra_buttons': False, 
-            'restricted_start_menu': False, 
-            'noop_button': True,
-            'swap_button': True,
-            'enable_item_manager': True,
-            'level_reward_badge_scale': 1.0,
-            # 'randomize_first_ep_split_cnt': num_cpu,
-            # 'start_from_state_dir': state_dir, 
-            'save_state_dir': state_dir,
-            'explore_weight': 1.5, # 3
-            'special_exploration_scale': 1.0,  # double the exploration for special maps (caverns)
-            'enable_stage_manager': True,
-            'enable_item_purchaser': True,
-            'auto_skip_anim': True,
-            'auto_skip_anim_frames': 8,
-            'early_stopping_min_reward': 2.0,
-            'total_envs': num_cpu,
-            'level_manager_eval_mode': False,  # True = full run
-            # 'randomization': 0.3,
-        }
-
-print(env_config)
-
-# env = SubprocVecEnv([make_env(i, env_config) for i in range(num_cpu)], start_method='spawn')
-
-
-learn_steps = 1
-# put a checkpoint here you want to start from
-file_name = r'/home/daa/puffer0.5.2_iron/obs_space_experiments/pufferlib/experiments/pokegym.play/sessions/env_0/states/env_0.state'
-if file_name and not exists(file_name + '.pt'):
-    print(f"{Exception(f'File {file_name} does not exist!')}")
 
 # def warmup_schedule(initial_value: float) -> Callable[[float], float]:
 #     """
@@ -152,52 +87,112 @@ if file_name and not exists(file_name + '.pt'):
 
 
 class Environment(Env):
-    def __init__(
-        self, config=env_config):
+    def __init__(self, env_config=None):
+        # env = SubprocVecEnv([make_env(i, env_config) for i in range(num_cpu)], start_method='spawn')
+        learn_steps = 1
+        # put a checkpoint here you want to start from
+        file_name = '/home/daa/puffer0.5.2_iron/obs_space_experiments/pufferlib/experiments/pokegym.play/sessions/env_0/states/env_0.state'
+        if not os.path.exists(file_name):  # Correctly checks the existence of the file
+            print(f"File {file_name} does not exist!")
+
+        use_wandb_logging = False
+        cpu_multiplier = 0.25  # For R9 7950x: 1.0 for 32 cpu, 1.25 for 40 cpu, 1.5 for 48 cpu
+        ep_length = 30720000 # 1024 * 1000 * 30  # 30m steps
+        save_freq = 2048 * 10 * 2
+        n_steps = int(5120 // cpu_multiplier) * 1 # to maintain ~163_840 steps per training iteration
+        sess_id = str(uuid.uuid4())[:8]
+        # sess_path = Path(f'session_{sess_id}_env8_lr3e-4_ent01_bs512_5120_81920_0.5vf')
+        # state_path = __file__.rstrip('environment.py') + 'has_pokedex_nballs.state'
+        # state_path = '/home/daa/puffer0.5.2_iron/obs_space_experiments/pokegym/has_pokedex_nballs_noanim.state'
+        sess_path = Path(f'session_{sess_id}')
+
+        state_dir = Path(__file__).parent  # Gets the directory of the current script
+        init_state_path = state_dir / 'has_pokedex_nballs_noanim.state'
+
+        num_cpu = int(32 * cpu_multiplier)  # Also sets the number of episodes per training iteration
+
+        env_config = {
+                    'headless': True, 
+                    'save_final_state': True, 
+                    'early_stop': True,  # resumed early stopping to ensure reward signal
+                    'action_freq': 24, 
+                    'init_state': 'has_pokedex_nballs_noanim.state', 
+                    'max_steps': ep_length, 
+                    # 'env_max_steps': env_max_steps,
+                    'print_rewards': False, 
+                    'save_video': False, 
+                    'fast_video': True, 
+                    'session_path': sess_path,
+                    'gb_path': 'PokemonRed.gb', 
+                    'debug': False, 
+                    'compile': True,
+                    'sim_frame_dist': 1_000_000.0, # 2_000_000.0, 
+                    'use_screen_explore': False, 
+                    'reward_scale': 4, 
+                    'extra_buttons': False, 
+                    'restricted_start_menu': True, # False, 
+                    'noop_button': True,
+                    'swap_button': True,
+                    'enable_item_manager': True, # True
+                    'level_reward_badge_scale': 2, # 1.0,
+                    # 'randomize_first_ep_split_cnt': num_cpu,
+                    # 'start_from_state_dir': state_dir, 
+                    'save_state_dir': state_dir,
+                    'explore_weight': 1.5, # 3
+                    'special_exploration_scale': 1.0,  # double the exploration for special maps (caverns)
+                    'enable_stage_manager': True, # True
+                    'enable_item_purchaser': True, # True
+                    'auto_skip_anim': True,
+                    'auto_skip_anim_frames': 8,
+                    'early_stopping_min_reward': 2.0,
+                    'total_envs': num_cpu,
+                    'level_manager_eval_mode': True,  # True = full run
+                    # 'randomization': 0.3,
+                }
 
         # self.debug = config['debug']
-        config['init_state'] = str(init_state_path)
+        env_config['init_state'] = str(init_state_path)
         
-        self.s_path = config['session_path']
-        self.save_final_state = config['save_final_state']
-        self.print_rewards = config['print_rewards']
+        self.s_path = env_config['session_path']
+        self.save_final_state = env_config['save_final_state']
+        self.print_rewards = env_config['print_rewards']
         self.vec_dim = 4320 #1000
-        self.headless = config['headless']
+        self.headless = env_config['headless']
         self.num_elements = 20000 # max
-        self.init_state = config['init_state']
-        self.act_freq = config['action_freq']
-        self.max_steps = config['max_steps']
-        self.early_stopping = config['early_stop']
-        self.early_stopping_min_reward = 2.0 if 'early_stopping_min_reward' not in config else config['early_stopping_min_reward']
-        self.save_video = config['save_video']
-        self.fast_video = config['fast_video']
+        self.init_state = env_config['init_state']
+        self.act_freq = env_config['action_freq']
+        self.max_steps = env_config['max_steps']
+        self.early_stopping = env_config['early_stop']
+        self.early_stopping_min_reward = 2.0 if 'early_stopping_min_reward' not in env_config else env_config['early_stopping_min_reward']
+        self.save_video = env_config['save_video']
+        self.fast_video = env_config['fast_video']
         self.video_interval = 256 * self.act_freq
         self.downsample_factor = 2
         self.frame_stacks = 3
-        self.explore_weight = 1 if 'explore_weight' not in config else config['explore_weight']
-        self.use_screen_explore = True if 'use_screen_explore' not in config else config['use_screen_explore']
-        self.randomize_first_ep_split_cnt = 0 if 'randomize_first_ep_split_cnt' not in config else config['randomize_first_ep_split_cnt']
-        self.similar_frame_dist = config['sim_frame_dist']
-        self.reward_scale = 1 if 'reward_scale' not in config else config['reward_scale']
-        self.extra_buttons = False if 'extra_buttons' not in config else config['extra_buttons']
-        self.noop_button = False if 'noop_button' not in config else config['noop_button']
-        self.swap_button = True if 'swap_button' not in config else config['swap_button']
-        self.restricted_start_menu = False if 'restricted_start_menu' not in config else config['restricted_start_menu']
-        self.level_reward_badge_scale = 0 if 'level_reward_badge_scale' not in config else config['level_reward_badge_scale']
-        self.instance_id = str(uuid.uuid4())[:8] if 'instance_id' not in config else config['instance_id']
-        self.start_from_state_dir = None if 'start_from_state_dir' not in config else config['start_from_state_dir']
-        self.save_state_dir = None if 'save_state_dir' not in config else config['save_state_dir']
-        self.randomization = 0 if 'randomization' not in config else config['randomization']
-        self.special_exploration_scale = 0 if 'special_exploration_scale' not in config else config['special_exploration_scale']
-        self.enable_item_manager = False if 'enable_item_manager' not in config else config['enable_item_manager']
-        self.enable_stage_manager = False if 'enable_stage_manager' not in config else config['enable_stage_manager']
-        self.enable_item_purchaser = False if 'enable_item_purchaser' not in config else config['enable_item_purchaser']
-        self.auto_skip_anim = False if 'auto_skip_anim' not in config else config['auto_skip_anim']
-        self.auto_skip_anim_frames = 8 if 'auto_skip_anim_frames' not in config else config['auto_skip_anim_frames']
-        self.env_id = str(random.randint(1, 9999)).zfill(4) if 'env_id' not in config else config['env_id']
-        self.env_max_steps = [] if 'env_max_steps' not in config else config['env_max_steps']
-        self.total_envs = 48 if 'total_envs' not in config else config['total_envs']
-        self.level_manager_eval_mode = False if 'level_manager_eval_mode' not in config else config['level_manager_eval_mode']
+        self.explore_weight = 1 if 'explore_weight' not in env_config else env_config['explore_weight']
+        self.use_screen_explore = True if 'use_screen_explore' not in env_config else env_config['use_screen_explore']
+        self.randomize_first_ep_split_cnt = 0 if 'randomize_first_ep_split_cnt' not in env_config else env_config['randomize_first_ep_split_cnt']
+        self.similar_frame_dist = env_config['sim_frame_dist']
+        self.reward_scale = 1 if 'reward_scale' not in env_config else env_config['reward_scale']
+        self.extra_buttons = False if 'extra_buttons' not in env_config else env_config['extra_buttons']
+        self.noop_button = False if 'noop_button' not in env_config else env_config['noop_button']
+        self.swap_button = True if 'swap_button' not in env_config else env_config['swap_button']
+        self.restricted_start_menu = False if 'restricted_start_menu' not in env_config else env_config['restricted_start_menu']
+        self.level_reward_badge_scale = 0 if 'level_reward_badge_scale' not in env_config else env_config['level_reward_badge_scale']
+        self.instance_id = str(uuid.uuid4())[:8] if 'instance_id' not in env_config else env_config['instance_id']
+        self.start_from_state_dir = None if 'start_from_state_dir' not in env_config else env_config['start_from_state_dir']
+        self.save_state_dir = None if 'save_state_dir' not in env_config else env_config['save_state_dir']
+        self.randomization = 0 if 'randomization' not in env_config else env_config['randomization']
+        self.special_exploration_scale = 0 if 'special_exploration_scale' not in env_config else env_config['special_exploration_scale']
+        self.enable_item_manager = False if 'enable_item_manager' not in env_config else env_config['enable_item_manager']
+        self.enable_stage_manager = False if 'enable_stage_manager' not in env_config else env_config['enable_stage_manager']
+        self.enable_item_purchaser = False if 'enable_item_purchaser' not in env_config else env_config['enable_item_purchaser']
+        self.auto_skip_anim = False if 'auto_skip_anim' not in env_config else env_config['auto_skip_anim']
+        self.auto_skip_anim_frames = 8 if 'auto_skip_anim_frames' not in env_config else env_config['auto_skip_anim_frames']
+        self.env_id = str(random.randint(1, 9999)).zfill(4) if 'env_id' not in env_config else env_config['env_id']
+        self.env_max_steps = [] if 'env_max_steps' not in env_config else env_config['env_max_steps']
+        self.total_envs = 48 if 'total_envs' not in env_config else env_config['total_envs']
+        self.level_manager_eval_mode = False if 'level_manager_eval_mode' not in env_config else env_config['level_manager_eval_mode']
         self.s_path.mkdir(exist_ok=True)
         self.warmed_up = False  # for randomize_first_ep_split_cnt usage
         self.reset_count = 0
@@ -313,10 +308,10 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
         '''
 
         # breakpoint()
-        head = 'headless' if config['headless'] else 'SDL2'
+        head = 'headless' if env_config['headless'] else 'SDL2'
 
         self.pyboy = PyBoy(
-                config['gb_path'],
+                env_config['gb_path'],
                 debugging=False,
                 disable_input=False,
                 window_type=head,
@@ -327,18 +322,31 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
         self.screen = self.pyboy.botsupport_manager().screen()
         self.wrapper = self.pyboy.game_wrapper()
 
-        if not config['headless']:
+        if not env_config['headless']:
             self.pyboy.set_emulation_speed(1)
-            
+        
         self.reset()
 
+    def tg_init_map_mem(self):
+        # Maybe I should preallocate a giant matrix for all map ids
+        # All map ids have the same size, right?
+        self.tg_seen_coords = {}
+        # self.seen_global_coords = np.zeros(GLOBAL_MAP_SHAPE)
+        self.tg_seen_map_ids = np.zeros(256)
+    
     def reset(self, seed=None, options=None):
         self.seed = seed
         
         # if self.use_screen_explore:
         #     self.init_knn()
         # else:
+        
+        # BET ADDED (from thatguy code)
+        self.explore_map = np.zeros(GLOBAL_MAP_SHAPE, dtype=np.float32)
+        self.max_map_progress = 0
+        
         self.init_map_mem()
+        self.tg_init_map_mem()
         self.init_caches()
         self.level_completed = False
         # self.level_completed_skip_type = None
@@ -534,6 +542,7 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
                 self.output_shape[1]),
                 dtype=np.uint8)
 
+            self.seen_map_ids = np.zeros(256)
             self.agent_stats = []
             self.base_explore = 0
             self.max_opponent_level = 0
@@ -1357,6 +1366,8 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
         #     self.update_frame_knn_index(obs_flat)
         # else:
         self.update_seen_coords()
+        
+        self.tg_update_seen_coords()   
             
         self.update_heal_reward()
         self.update_num_poke()
@@ -1415,13 +1426,19 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
 
         if self.level_completed and self.level_manager_eval_mode:
             self.current_level += 1
+    
 
         self.step_count += 1
 
         if not self.level_manager_initialized:
             self.level_manager_initialized = True
+        
 
-        return obs_memory, new_reward*0.1, False, step_limit_reached, {}
+        info = {}
+        if self.step_count % 20000 == 0 or self.step_count == 1:
+            info = self.tg_agent_stats()
+
+        return obs_memory, new_reward*0.1, False, step_limit_reached, info # {}
     
     def init_caches(self):
         # for cached properties
@@ -1875,11 +1892,94 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
     #         return self.get_stats()
     #     return self._last_episode_stats
 
+    def get_game_coords(self):
+        return (self.read_m(0xD362), self.read_m(0xD361), self.read_m(0xD35E))
+
+    def tg_update_seen_coords(self):
+        x_pos, y_pos, map_n = self.get_game_coords()
+        self.seen_coords[(x_pos, y_pos, map_n)] = 1
+        self.explore_map[local_to_global(y_pos, x_pos, map_n)] += 1 # BET ADDED += instead of =
+        # self.seen_global_coords[local_to_global(y_pos, x_pos, map_n)] = 1
+        self.seen_map_ids[map_n] = 1
+
+    def get_explore_map(self):
+        explore_map = np.zeros(GLOBAL_MAP_SHAPE)
+        for (x, y, map_n), v in self.seen_coords.items():
+            gy, gx = local_to_global(y, x, map_n)
+            if gy >= explore_map.shape[0] or gx >= explore_map.shape[1]:
+                print(f"coord out of bounds! global: ({gx}, {gy}) game: ({x}, {y}, {map_n})")
+            else:
+                explore_map[gy, gx] = v
+
+        return explore_map
+    
+    
     @property
     def current_stats_with_id(self):
         stats = self.get_stats()
         stats['env_id'] = self.env_id
         return stats
+    
+    def tg_agent_stats(self):
+        x_pos, y_pos, map_n = self.get_game_coords()
+        levels = [self.read_m(a) for a in [0xD18C, 0xD1B8, 0xD1E4, 0xD210, 0xD23C, 0xD268]]
+        return {
+            "stats": {
+                "step": self.step_count,
+                "x": x_pos,
+                "y": y_pos,
+                "map": map_n,
+                "map_location": self.get_map_location(map_n),
+                "max_map_progress": self.max_map_progress,
+                "pcount": self.read_m(0xD163),
+                "levels": levels,
+                "levels_sum": sum(levels),
+                "ptypes": self.read_party(),
+                "hp": self.read_hp_fraction(),
+                "coord": sum(self.seen_coords.values()),  # np.sum(self.seen_global_coords),
+                "map_id": np.sum(self.seen_map_ids),
+                # "npc": sum(self.seen_npcs.values()),
+                # "hidden_obj": sum(self.seen_hidden_objs.values()),
+                "deaths": self.died_count,
+                "badge": self.get_badges(),
+                "event": self.progress_reward["event"],
+                "healr": self.total_healing_rew,
+                # "action_hist": self.action_hist,
+                # "caught_pokemon": int(sum(self.caught_pokemon)),
+                # "seen_pokemon": int(sum(self.seen_pokemon)),
+                # "moves_obtained": int(sum(self.moves_obtained)),
+                "opponent_level": self.max_opponent_level,
+                "met_bill": int(self.read_bit(0xD7F1, 0)),
+                "used_cell_separator_on_bill": int(self.read_bit(0xD7F2, 3)),
+                "ss_ticket": int(self.read_bit(0xD7F2, 4)),
+                "met_bill_2": int(self.read_bit(0xD7F2, 5)),
+                "bill_said_use_cell_separator": int(self.read_bit(0xD7F2, 6)),
+                "left_bills_house_after_helping": int(self.read_bit(0xD7F2, 7)),
+                "got_hm01": int(self.read_bit(0xD803, 0)),
+                "rubbed_captains_back": int(self.read_bit(0xD803, 1)),
+                # "taught_cut": int(self.check_if_party_has_cut()),
+                # "cut_coords": sum(self.cut_coords.values()),
+                'step': self.step_count, 'x': x_pos, 'y': y_pos, 'map': map_n,
+                'pcount': self.read_m(0xD163), 
+                'prev_knn_rew': self.prev_knn_rew,
+                'eventr': self.progress_reward['event'],
+                'levelr': self.progress_reward['level'],
+                'op_lvlr': self.progress_reward['op_lvl'],
+                'deadr': self.progress_reward['dead'],
+                'visited_pokecenterr': self.progress_reward['visited_pokecenter'],
+                'trees_cutr': self.progress_reward['trees_cut'],
+                'hmr': self.progress_reward['hm'],
+                'hm_usabler': self.progress_reward['hm_usable'],
+                # 'hm_mover': self.progress_reward['hm_move'],
+                'rewards': self.total_reward,
+                # 'early_done': self.early_done,
+                'special_key_itemsr': self.progress_reward['special_key_items'],
+                'special_seen_coords_count': self.special_seen_coords_count,
+            },
+            "reward": self.get_game_state_reward(),
+            "reward/reward_sum": sum(self.get_game_state_reward().values()),
+            "pokemon_exploration_map": self.explore_map,
+        }
     
     def get_stats(self):
         stats = {
@@ -1938,40 +2038,40 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
         else:
             return {}
     
-    # def append_agent_stats(self, action):
-    #     x_pos = self.read_m(0xD362)
-    #     y_pos = self.read_m(0xD361)
-    #     map_n = self.read_m(0xD35E)
-    #     levels = [self.read_m(a) for a in [0xD18C, 0xD1B8, 0xD1E4, 0xD210, 0xD23C, 0xD268]]
-    #     # if self.use_screen_explore:
-    #     #     expl = ('frames', self.knn_index.get_current_count())
-    #     # else:
-    #     expl = ('coord_count', len(self.seen_coords))
-    #     self.agent_stats.append({
-    #         'step': self.step_count, 'x': x_pos, 'y': y_pos, 'map': map_n,
-    #         'last_action': action,
-    #         'pcount': self.read_m(0xD163), 
-    #         'levels': levels, 
-    #         'ptypes': self.read_party(),
-    #         'hp': self.read_hp_fraction(),
-    #         expl[0]: expl[1],
-    #         'prev_knn_rew': self.prev_knn_rew,
-    #         # 'deaths': self.died_count, 
-    #         'badge': self.get_badges(),
-    #         'eventr': self.progress_reward['event'],
-    #         'levelr': self.progress_reward['level'],
-    #         'op_lvlr': self.progress_reward['op_lvl'],
-    #         'deadr': self.progress_reward['dead'],
-    #         'visited_pokecenterr': self.progress_reward['visited_pokecenter'],
-    #         'trees_cutr': self.progress_reward['trees_cut'],
-    #         'hmr': self.progress_reward['hm'],
-    #         'hm_usabler': self.progress_reward['hm_usable'],
-    #         # 'hm_mover': self.progress_reward['hm_move'],
-    #         'rewards': self.total_reward,
-    #         # 'early_done': self.early_done,
-    #         'special_key_itemsr': self.progress_reward['special_key_items'],
-    #         'special_seen_coords_count': self.special_seen_coords_count,
-    #     })
+    def append_agent_stats(self, action):
+        x_pos = self.read_m(0xD362)
+        y_pos = self.read_m(0xD361)
+        map_n = self.read_m(0xD35E)
+        levels = [self.read_m(a) for a in [0xD18C, 0xD1B8, 0xD1E4, 0xD210, 0xD23C, 0xD268]]
+        # if self.use_screen_explore:
+        #     expl = ('frames', self.knn_index.get_current_count())
+        # else:
+        expl = ('coord_count', len(self.seen_coords))
+        self.agent_stats.append({
+            'step': self.step_count, 'x': x_pos, 'y': y_pos, 'map': map_n,
+            'last_action': action,
+            'pcount': self.read_m(0xD163), 
+            'levels': levels, 
+            'ptypes': self.read_party(),
+            'hp': self.read_hp_fraction(),
+            expl[0]: expl[1],
+            'prev_knn_rew': self.prev_knn_rew,
+            # 'deaths': self.died_count, 
+            'badge': self.get_badges(),
+            'eventr': self.progress_reward['event'],
+            'levelr': self.progress_reward['level'],
+            'op_lvlr': self.progress_reward['op_lvl'],
+            'deadr': self.progress_reward['dead'],
+            'visited_pokecenterr': self.progress_reward['visited_pokecenter'],
+            'trees_cutr': self.progress_reward['trees_cut'],
+            'hmr': self.progress_reward['hm'],
+            'hm_usabler': self.progress_reward['hm_usable'],
+            # 'hm_mover': self.progress_reward['hm_move'],
+            'rewards': self.total_reward,
+            # 'early_done': self.early_done,
+            'special_key_itemsr': self.progress_reward['special_key_items'],
+            'special_seen_coords_count': self.special_seen_coords_count,
+        })
     
     def update_seen_coords(self):
         x_pos, y_pos = self.current_coords
@@ -2069,7 +2169,8 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
                     print(f'elite 4 early done, step: {self.env_id}:{self.step_count}, r1: {self.past_rewards[0]:6.2f}, r2: {self.past_rewards[1600]:6.2f}, badges: {num_badges}')
                     self.elite_4_early_done = True
                 else:
-                    print(f'es, step: {self.env_id}:{self.step_count}, r1: {self.past_rewards[0]:6.2f}, r2: {self.past_rewards[-1]:6.2f}')
+                    pass
+                    # print(f'es, step: {self.env_id}:{self.step_count}, r1: {self.past_rewards[0]:6.2f}, r2: {self.past_rewards[-1]:6.2f}')
         return self.early_done
 
     def check_if_done(self):
@@ -2328,7 +2429,7 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
                     # changed to static heal reward
                     # 1 pokemon from 0 to 100% hp is 0.167 with 6 pokemon
                     # so 0.1 total heal is around 60% hp
-                    print(f' healed: {heal_amount:.2f}')
+                    # print(f' healed: {heal_amount:.2f}')
                     self.total_healing_rew += 0.1
                 # if heal_amount > 0.5:
                 #     print(f' healed: {heal_amount:.2f}')
@@ -4395,3 +4496,112 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
         #     # if eval mode, increase current_level
         #     self.current_level += 1
         #     return True
+        
+    def get_map_location(self, map_idx):
+        map_locations = {
+            0: {"name": "Pallet Town", "coordinates": np.array([70, 7])},
+            1: {"name": "Viridian City", "coordinates": np.array([60, 79])},
+            2: {"name": "Pewter City", "coordinates": np.array([60, 187])},
+            3: {"name": "Cerulean City", "coordinates": np.array([240, 205])},
+            62: {
+                "name": "Invaded house (Cerulean City)",
+                "coordinates": np.array([290, 227]),
+            },
+            63: {
+                "name": "trade house (Cerulean City)",
+                "coordinates": np.array([290, 212]),
+            },
+            64: {
+                "name": "Pokémon Center (Cerulean City)",
+                "coordinates": np.array([290, 197]),
+            },
+            65: {
+                "name": "Pokémon Gym (Cerulean City)",
+                "coordinates": np.array([290, 182]),
+            },
+            66: {
+                "name": "Bike Shop (Cerulean City)",
+                "coordinates": np.array([290, 167]),
+            },
+            67: {
+                "name": "Poké Mart (Cerulean City)",
+                "coordinates": np.array([290, 152]),
+            },
+            35: {"name": "Route 24", "coordinates": np.array([250, 235])},
+            36: {"name": "Route 25", "coordinates": np.array([270, 267])},
+            12: {"name": "Route 1", "coordinates": np.array([70, 43])},
+            13: {"name": "Route 2", "coordinates": np.array([70, 151])},
+            14: {"name": "Route 3", "coordinates": np.array([100, 179])},
+            15: {"name": "Route 4", "coordinates": np.array([150, 197])},
+            33: {"name": "Route 22", "coordinates": np.array([20, 71])},
+            37: {"name": "Red house first", "coordinates": np.array([61, 9])},
+            38: {"name": "Red house second", "coordinates": np.array([61, 0])},
+            39: {"name": "Blues house", "coordinates": np.array([91, 9])},
+            40: {"name": "oaks lab", "coordinates": np.array([91, 1])},
+            41: {
+                "name": "Pokémon Center (Viridian City)",
+                "coordinates": np.array([100, 54]),
+            },
+            42: {
+                "name": "Poké Mart (Viridian City)",
+                "coordinates": np.array([100, 62]),
+            },
+            43: {"name": "School (Viridian City)", "coordinates": np.array([100, 79])},
+            44: {"name": "House 1 (Viridian City)", "coordinates": np.array([100, 71])},
+            47: {
+                "name": "Gate (Viridian City/Pewter City) (Route 2)",
+                "coordinates": np.array([91, 143]),
+            },
+            49: {"name": "Gate (Route 2)", "coordinates": np.array([91, 115])},
+            50: {
+                "name": "Gate (Route 2/Viridian Forest) (Route 2)",
+                "coordinates": np.array([91, 115]),
+            },
+            51: {"name": "viridian forest", "coordinates": np.array([35, 144])},
+            52: {"name": "Pewter Museum (floor 1)", "coordinates": np.array([60, 196])},
+            53: {"name": "Pewter Museum (floor 2)", "coordinates": np.array([60, 205])},
+            54: {
+                "name": "Pokémon Gym (Pewter City)",
+                "coordinates": np.array([49, 176]),
+            },
+            55: {
+                "name": "House with disobedient Nidoran♂ (Pewter City)",
+                "coordinates": np.array([51, 184]),
+            },
+            56: {"name": "Poké Mart (Pewter City)", "coordinates": np.array([40, 170])},
+            57: {
+                "name": "House with two Trainers (Pewter City)",
+                "coordinates": np.array([51, 184]),
+            },
+            58: {
+                "name": "Pokémon Center (Pewter City)",
+                "coordinates": np.array([45, 161]),
+            },
+            59: {
+                "name": "Mt. Moon (Route 3 entrance)",
+                "coordinates": np.array([153, 234]),
+            },
+            60: {"name": "Mt. Moon Corridors", "coordinates": np.array([168, 253])},
+            61: {"name": "Mt. Moon Level 2", "coordinates": np.array([197, 253])},
+            68: {
+                "name": "Pokémon Center (Route 3)",
+                "coordinates": np.array([135, 197]),
+            },
+            193: {
+                "name": "Badges check gate (Route 22)",
+                "coordinates": np.array([0, 87]),
+            },  # TODO this coord is guessed, needs to be updated
+            230: {
+                "name": "Badge Man House (Cerulean City)",
+                "coordinates": np.array([290, 137]),
+            },
+        }
+        if map_idx in map_locations.keys():
+            return map_locations[map_idx]
+        else:
+            return {
+                "name": "Unknown",
+                "coordinates": np.array([80, 0]),
+            }  # TODO once all maps are added this case won't be needed
+            
+            
