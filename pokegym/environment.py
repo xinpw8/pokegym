@@ -105,6 +105,8 @@ class Environment(Env):
         test_exp_str = env_config
         # Use eval to convert the string back to Namespace
         # Note: eval can be dangerous. ;-) You trust, right?
+        print(test_exp_str)
+
         test_exp_namespace = eval(test_exp_str)
         # Now convert Namespace to dictionary
         test_exp_dict = vars(test_exp_namespace)
@@ -133,7 +135,7 @@ class Environment(Env):
         self.restricted_start_menu = True if 'restricted_start_menu' not in env_config else env_config['restricted_start_menu']
         self.level_reward_badge_scale = 0 if 'level_reward_badge_scale' not in env_config else env_config['level_reward_badge_scale']
         self.instance_id = str(uuid.uuid4())[:8] if 'instance_id' not in env_config else env_config['instance_id']
-        self.start_from_state_dir = 'pokegym/pokegym/save_state_dir/start_from_state_dir' if 'start_from_state_dir' not in env_config else env_config['start_from_state_dir']
+        self.start_from_state_dir = '/home/bet_adsorption_xinpw8/pokegym/pokegym/save_state_dir/start_from_state_dir' if 'start_from_state_dir' not in env_config else env_config['start_from_state_dir']
         self.save_state_dir = Path(env_config['save_state_dir']) if 'save_state_dir' in env_config else None if 'save_state_dir' not in env_config else env_config['save_state_dir']
         self.randomization = 0 if 'randomization' not in env_config else env_config['randomization']
         self.special_exploration_scale = 0 if 'special_exploration_scale' not in env_config else env_config['special_exploration_scale']
@@ -283,7 +285,7 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
         # Maybe I should preallocate a giant matrix for all map ids
         # All map ids have the same size, right?
         self.tg_seen_coords = {}
-        # self.seen_global_coords = np.zeros(GLOBAL_MAP_SHAPE)
+        self.seen_global_coords = np.zeros(GLOBAL_MAP_SHAPE)
         self.tg_seen_map_ids = np.zeros(256)
     
     def reset(self, seed=None, options=None):
@@ -294,11 +296,11 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
         # else:
         
         # # BET ADDED (from thatguy code)
-        # self.explore_map = np.zeros(GLOBAL_MAP_SHAPE, dtype=np.float32)
-        # self.max_map_progress = 0
+        self.explore_map = np.zeros(GLOBAL_MAP_SHAPE, dtype=np.float32)
+        self.max_map_progress = 0
         
         self.init_map_mem()
-        # self.tg_init_map_mem()
+        self.tg_init_map_mem()
         self.init_caches()
         self.level_completed = False
         # self.level_completed_skip_type = None
@@ -494,7 +496,7 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
                 self.output_shape[1]),
                 dtype=np.uint8)
 
-            # self.seen_map_ids = np.zeros(256)
+            self.seen_map_ids = np.zeros(256)
             self.agent_stats = []
             self.base_explore = 0
             self.max_opponent_level = 0
@@ -1322,7 +1324,7 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
         #     self.update_frame_knn_index(obs_flat)
         # else:
         self.update_seen_coords()
-        # self.tg_update_seen_coords()   
+        self.tg_update_seen_coords()   
             
         self.update_heal_reward()
         self.update_num_poke()
@@ -1381,7 +1383,6 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
 
         if self.level_completed and self.level_manager_eval_mode:
             self.current_level += 1
-    
 
         self.step_count += 1
 
@@ -1392,8 +1393,10 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
         self.update_heat_map(glob_r, glob_c, current_map)
         info = {}
         # if self.step_count % 20000 == 0:
-        if step_limit_reached:
+        if self.step_count % 20000 == 0:
+        # if step_limit_reached:
             info = self.tg_agent_stats()
+            # print(f'ENVIRONMENT.PY LINE1398 tg_agent_states={self.tg_agent_stats()}')
             # self.reset()
 
         return obs_memory, new_reward*0.1, step_limit_reached, False, info # {}
@@ -1878,6 +1881,7 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
         return stats
     
     def tg_agent_stats(self):
+        # print(f'tg_agent_stats() LINE1883 environment.py executed')
         x_pos, y_pos, map_n = self.get_game_coords()
         levels = [self.read_m(a) for a in [0xD18C, 0xD1B8, 0xD1E4, 0xD210, 0xD23C, 0xD268]]
         return {
@@ -1935,7 +1939,7 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
             },
             "reward": self.get_game_state_reward(),
             "reward/reward_sum": sum(self.get_game_state_reward().values()),
-            "pokemon_exploration_map": self.counts_map, # self.explore_map,
+            "pokemon_exploration_map": self.explore_map, #  self.counts_map, 
         }
     
     def get_stats(self):
