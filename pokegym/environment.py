@@ -19,7 +19,8 @@ from pyboy import PyBoy
 import mediapy as media
 import pandas as pd
 import math
-import datetime
+from datetime import datetime
+import logging
 
 from gymnasium import Env, spaces
 from pyboy.utils import WindowEvent
@@ -73,7 +74,7 @@ class Environment(Env):
         with Environment.counter_lock:
             sess_id = Environment.counter.value
             Environment.counter.value += 1
-
+            
         # Initialization of folder logic/logging
         # TODO: clean up and load from json file written by clean_pufferl
         start_dir = Path(__file__).parent
@@ -100,7 +101,7 @@ class Environment(Env):
         with open(start_dir / "required_resources/test_exp.txt", "r") as file:
             env_config = file.read()
             # print(f'test_exp={env_config}')
-        
+
         from argparse import Namespace  
         test_exp_str = env_config
         # Use eval to convert the string back to Namespace
@@ -111,6 +112,11 @@ class Environment(Env):
         # Now convert Namespace to dictionary
         test_exp_dict = vars(test_exp_namespace)
         env_config = test_exp_dict
+        
+        self.env_id = sess_id
+        self.s_path = Path(f'{str(self.exp_path)}/sessions/{str(self.env_id)}')
+        self.s_path.mkdir(parents=True, exist_ok=True)
+        self.setup_logging()
             
         self.debug = env_config['debug']
         self.save_final_state = env_config.get('save_final_state', False)
@@ -146,7 +152,7 @@ class Environment(Env):
         self.auto_skip_anim_frames = 8 if 'auto_skip_anim_frames' not in env_config else env_config['auto_skip_anim_frames']
         self.env_id = sess_id # str(random.randint(1, 9999)).zfill(4) if 'env_id' not in env_config else env_config['env_id']
         self.env_max_steps = [] if 'env_max_steps' not in env_config else env_config['env_max_steps']
-        self.total_envs = 48 if 'num_envs' not in env_config else env_config['num_envs']
+        self.total_envs = 512 if 'num_envs' not in env_config else env_config['num_envs'] # 48
         self.level_manager_eval_mode = False if 'level_manager_eval_mode' not in env_config else env_config['level_manager_eval_mode']         
         self.s_path.mkdir(exist_ok=True)
         self.warmed_up = False  # for randomize_first_ep_split_cnt usage
@@ -166,6 +172,7 @@ class Environment(Env):
                 self.max_steps = self.env_max_steps[self.env_id]
             else:
                 self.max_steps = self.env_max_steps[-1]  # use last env_max_steps
+                logging.info(f'Warning env_id {self.env_id} is out of range, using last env_max_steps: {self.max_steps}')
                 print(f'Warning env_id {self.env_id} is out of range, using last env_max_steps: {self.max_steps}')
 
         # Set this in SOME subclasses
@@ -250,6 +257,7 @@ class Environment(Env):
         })
 
         # Something happens to this dict where it is a Box when it gets to torch.py...2/23/24
+        
         '''
 (Pdb) self.observation_space
 Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0, (128, 1), float32), 
@@ -280,6 +288,25 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
             self.pyboy.set_emulation_speed(1)
         
         self.reset()
+
+
+    def setup_logging(self):
+        """Sets up logging for the environment."""
+        log_filename = datetime.now().strftime('%Y-%m-%d_%H-%M-%S') + f'_env_{self.env_id}' + '.log'
+        log_file_path = self.s_path / log_filename
+        # Create a custom logger
+        self.logger = logging.getLogger(f'env_{self.env_id}')
+        self.logger.setLevel(logging.INFO)  # or any other level
+        # Create handlers
+        file_handler = logging.FileHandler(log_file_path)
+        file_handler.setLevel(logging.INFO)
+        # Create formatters and add it to handlers
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        file_handler.setFormatter(formatter)
+        # Add handlers to the logger
+        self.logger.addHandler(file_handler)
+        # Log an initial message
+        self.logger.info(f'Environment {self.env_id} logging setup complete.')
 
     def tg_init_map_mem(self):
         # Maybe I should preallocate a giant matrix for all map ids
@@ -363,6 +390,7 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
                     # env_id 0 to 11, level_in_charge 0
                     # env_id 12 to 23, level_in_charge 1
                     self.level_in_charge = self.env_id // n_level_env_count
+                    logging.info(f'env_id: {self.env_id}, level: {self.level_in_charge}, level_env')
                     print(f'env_id: {self.env_id}, level: {self.level_in_charge}, level_env')
                 else:
                     # assist env
@@ -398,6 +426,7 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
                     # select level based on chance with np.random.choice
                     # if no stats, equal chance to select any level
                     self.level_in_charge = np.random.choice(explored_levels, p=level_selection_chance_list)
+                    logging.info(f'env_id: {self.env_id}, level: {self.level_in_charge}, assist_env chance: {[f"{level}: {level_selection_chance_list[level]:.2f}" for level in range(explored_levels)]}')
                     print(f'env_id: {self.env_id}, level: {self.level_in_charge}, assist_env chance: {[f"{level}: {level_selection_chance_list[level]:.2f}" for level in range(explored_levels)]}')
 
             self.current_level = self.level_in_charge
@@ -475,9 +504,11 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
                     raise ValueError('start_from_state_dir is empty')
                 # load the state randomly from the directory
                 state_dir = np.random.choice(selected_state_dirs)
+                logging.info('env_id: {self.env_id}, load state {state_dir}, level: {self.current_level}')
                 print(f'env_id: {self.env_id}, load state {state_dir}, level: {self.current_level}')
                 self.load_state(state_dir)
         if self.current_level == 0:
+            logging.info(f'env_id: {self.env_id}, level: {self.current_level}')
             print(f'env_id: {self.env_id}, level: {self.current_level}')
             state_to_init = self.init_state
             if self.randomization:
@@ -571,6 +602,7 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
         if not dirs_given:
             return None
         if weightage <= 0:
+            logging.info(f'weightage should be greater than 0, weightage: {weightage}')
             print(f'weightage should be greater than 0, weightage: {weightage}')
             weightage = 0.01
         dirs_given = list(dirs_given)
@@ -779,6 +811,7 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
             cur_map_id = self.current_map_id - 1
             x, y = self.current_coords
             if cur_map_id not in self.seen_map_dict:
+                logging.info(f'\nERROR!!! cur_map_id: {cur_map_id} not in self.seen_map_dict')
                 print(f'\nERROR!!! cur_map_id: {cur_map_id} not in self.seen_map_dict')
             cur_top_left_x = x - 4
             cur_top_left_y = y - 4
@@ -1000,6 +1033,7 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
         if not self.is_warping:
             if y >= self.seen_map_dict[cur_map_id].shape[0] or x >= self.seen_map_dict[cur_map_id].shape[1]:
                 self.stuck_cnt += 1
+                logging.info(f'ERROR1: x: {x}, y: {y}, cur_map_id: {cur_map_id} ({MAP_ID_REF[cur_map_id]}), map.shape: {self.seen_map_dict[cur_map_id].shape}')
                 print(f'ERROR1: x: {x}, y: {y}, cur_map_id: {cur_map_id} ({MAP_ID_REF[cur_map_id]}), map.shape: {self.seen_map_dict[cur_map_id].shape}')
                 if self.stuck_cnt > 50:
                     print(f'stucked for > 50 steps, force ES')
@@ -1248,6 +1282,7 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
                                 moves_power.append(0)
                             elif move_id not in MOVES_INFO_DICT:
                                 moves_power.append(0)
+                                logging.info(f'\nERROR: move_id: {move_id} not in MOVES_INFO_DICT')
                                 print(f'\nERROR: move_id: {move_id} not in MOVES_INFO_DICT')
                             else:
                                 this_move = MOVES_INFO_DICT[move_id]
@@ -1280,6 +1315,7 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
                         self.run_action_on_emulator(5)
                         is_action_taken = True
                     else:
+                        logging.info(f'ERROR: unknown is_actionable: {is_actionable}')
                         print(f'ERROR: unknown is_actionable: {is_actionable}')
                         # self.save_screenshot(f'unknown_is_actionable_{str(is_actionable)}')
                         break
@@ -1393,7 +1429,7 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
         self.update_heat_map(glob_r, glob_c, current_map)
         info = {}
         # if self.step_count % 20000 == 0:
-        if self.step_count % 20000 == 0:
+        if self.step_count % 100000 == 0:
         # if step_limit_reached:
             info = self.tg_agent_stats()
             # print(f'ENVIRONMENT.PY LINE1398 tg_agent_states={self.tg_agent_stats()}')
@@ -2130,8 +2166,8 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
                     print(f'elite 4 early done, step: {self.env_id}:{self.step_count}, r1: {self.past_rewards[0]:6.2f}, r2: {self.past_rewards[1600]:6.2f}, badges: {num_badges}')
                     self.elite_4_early_done = True
                 else:
-                    pass
-                    # print(f'es, step: {self.env_id}:{self.step_count}, r1: {self.past_rewards[0]:6.2f}, r2: {self.past_rewards[-1]:6.2f}')
+                    logging.info(f'early stopping, location: {MAP_ID_REF[self.seen_map_id]}, step: {self.env_id}:{self.step_count}, r1: {self.past_rewards[0]:6.2f}, r2: {self.past_rewards[-1]:6.2f}')
+                    # print(f'early stopping, location: {MAP_ID_REF[self.seen_map_id]}, step: {self.env_id}:{self.step_count}, r1: {self.past_rewards[0]:6.2f}, r2: {self.past_rewards[-1]:6.2f}')
         return self.early_done
 
     def check_if_done(self):
@@ -2154,15 +2190,16 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
                     else:
                         prog_string += f' {key[:10]}: {val:5.2f}'
                 prog_string += f' sum: {self.total_reward:5.2f}'
+                logging.info(f'\r{prog_string}', end='', flush=True)
                 print(f'\r{prog_string}', end='', flush=True)
         
-        if self.step_count % 1000 == 0:
-            try:
-                plt.imsave(
-                    self.s_path / Path(f'curframe_{self.env_id}.jpeg'), 
-                    self.render(reduce_res=False))
-            except:
-                pass
+        # if self.step_count % 1000 == 0:
+        #     try:
+        #         plt.imsave(
+        #             self.s_path / Path(f'curframe_{self.env_id}.jpeg'), 
+        #             self.render(reduce_res=False))
+        #     except:
+        #         pass
 
         if self.print_rewards and done:
             print('', flush=True)
@@ -2178,8 +2215,9 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
                         self.render(reduce_res=False))
                 except Exception as e:
                     print(f'error saving final state: {e}')
-                # if self.save_state_dir:
-                #     self.save_all_states()
+                # BET ADDED (uncommented)
+                if self.save_state_dir:
+                    self.save_all_states()
 
         if self.save_video and done:
             self.full_frame_writer.close()
@@ -2365,6 +2403,7 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
             # no pokecenter visited yet
             return -1
         if last_pokecenter not in self.pokecenter_ids:
+            logging.info(f'\nERROR: last_pokecenter: {last_pokecenter} not in pokecenter_ids')
             print(f'\nERROR: last_pokecenter: {last_pokecenter} not in pokecenter_ids')
             return -1
         else:
@@ -3536,11 +3575,13 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
             max_y = MAP_DICT[MAP_ID_REF[cur_map_id]]['height']
             if max_x == 0:
                 if cur_map_id not in [231]:  # 231 is expected
-                    print(f'invalid max_x: {max_x}, map_id: {cur_map_id}')
+                    logging.info(f'invalid max_x: {max_x}, map_id: {cur_map_id}')
+                    print(f'env_id: {self.env_id}, invalid max_x: {max_x}, map_id: {cur_map_id}')
                 max_x = 45
             if max_y == 0:
                 if cur_map_id not in [231]:
-                    print(f'invalid max_y: {max_y}, map_id: {cur_map_id}')
+                    logging.info(f'invalid max_y: {max_y}, map_id: {cur_map_id}')
+                    print(f'env_id: {self.env_id}, invalid max_y: {max_y}, map_id: {cur_map_id}')
                 max_y = 72
         return [self.scaled_encoding(coord[0], max_x), self.scaled_encoding(coord[1], max_y)]
     
@@ -4264,12 +4305,15 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
         index = lowest_party_level_idx
         for idx, name, m_type in named_idx:
             if m_type == 'double':
+                logging.info(f'{name}: {self.read_double(party_addr_start + index * 44 + idx)}')
                 print(f'{name}: {self.read_double(party_addr_start + index * 44 + idx)}')
                 party_stats_dict[name] = self.read_double(party_addr_start + index * 44 + idx)
             elif m_type == 'triple':
+                logging.info(f'{name}: {self.read_triple(party_addr_start + index * 44 + idx)}')
                 print(f'{name}: {self.read_triple(party_addr_start + index * 44 + idx)}')
                 party_stats_dict[name] = self.read_triple(party_addr_start + index * 44 + idx)
             else:
+                logging.info(f'{name}: {self.read_m(party_addr_start + index * 44 + idx)}')
                 print(f'{name}: {self.read_m(party_addr_start + index * 44 + idx)}')
                 party_stats_dict[name] = self.read_m(party_addr_start + index * 44 + idx)
 
@@ -4290,8 +4334,10 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
         lowest_party_species = self.read_m(party_species_addr_start + lowest_party_level_idx)
         highest_box_species = self.read_m(box_species_addr_start + highest_box_level_idx)
         if lowest_party_species in ID_TO_SPECIES and highest_box_species in ID_TO_SPECIES:
+            logging.info(f'\nSwapping pokemon {ID_TO_SPECIES[lowest_party_species]} lv {lowest_party_level} with {ID_TO_SPECIES[highest_box_species]} lv {highest_box_level}')
             print(f'\nSwapping pokemon {ID_TO_SPECIES[lowest_party_species]} lv {lowest_party_level} with {ID_TO_SPECIES[highest_box_species]} lv {highest_box_level}')
         else:
+            logging.info(f'\nSwapping pokemon {lowest_party_species} lv {lowest_party_level} with {highest_box_species} lv {highest_box_level}')
             print(f'\nSwapping pokemon {lowest_party_species} lv {lowest_party_level} with {highest_box_species} lv {highest_box_level}')
         self.use_pc_swap_count += 1
         # calculate box pokemon stats
@@ -4578,6 +4624,7 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
             try:
                 glob_r, glob_c = local_to_global(r, c, current_map)
             except IndexError:
+                logging.info(f'IndexError: index {glob_r} or {glob_c} for {current_map} is out of bounds for axis 0 with size 444.')
                 print(f'IndexError: index {glob_r} or {glob_c} for {current_map} is out of bounds for axis 0 with size 444.')
                 glob_r = 0
                 glob_c = 0
