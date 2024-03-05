@@ -24,19 +24,19 @@ import logging
 
 from gymnasium import Env, spaces
 from pyboy.utils import WindowEvent
-from pokegym.constants import GYM_INFO, SPECIAL_MAP_IDS, IGNORED_EVENT_IDS, SPECIAL_KEY_ITEM_IDS, \
+from .constants import GYM_INFO, SPECIAL_MAP_IDS, IGNORED_EVENT_IDS, SPECIAL_KEY_ITEM_IDS, \
     ALL_KEY_ITEMS, ALL_HM_IDS, ALL_POKEBALL_IDS, ALL_HEALABLE_ITEM_IDS, ALL_GOOD_ITEMS, GOOD_ITEMS_PRIORITY, \
     POKEBALL_PRIORITY, POTION_PRIORITY, REVIVE_PRIORITY, STATES_TO_SAVE_LOAD, LEVELS
-from pokegym.pokered_constants import MAP_DICT, MAP_ID_REF, WARP_DICT, WARP_ID_DICT, BASE_STATS, \
+from .pokered_constants import MAP_DICT, MAP_ID_REF, WARP_DICT, WARP_ID_DICT, BASE_STATS, \
     SPECIES_TO_ID, ID_TO_SPECIES, CHARMAP, MOVES_INFO_DICT, MART_MAP_IDS, MART_ITEMS_ID_DICT, ITEM_TM_IDS_PRICES
-from pokegym.ram_addresses import RamAddress as RAM
-from pokegym.stage_manager import StageManager, STAGE_DICT, POKECENTER_TO_INDEX_DICT
+from .ram_addresses import RamAddress as RAM
+from .stage_manager import StageManager, STAGE_DICT, POKECENTER_TO_INDEX_DICT
 from skimage.transform import downscale_local_mean
 
 from os.path import exists
 from pathlib import Path
 
-from pokegym.global_map import GLOBAL_MAP_SHAPE, local_to_global
+from .global_map import GLOBAL_MAP_SHAPE, local_to_global
 import multiprocessing
 import yaml
 
@@ -141,7 +141,7 @@ class Environment(Env):
         self.restricted_start_menu = True if 'restricted_start_menu' not in env_config else env_config['restricted_start_menu']
         self.level_reward_badge_scale = 0 if 'level_reward_badge_scale' not in env_config else env_config['level_reward_badge_scale']
         self.instance_id = str(uuid.uuid4())[:8] if 'instance_id' not in env_config else env_config['instance_id']
-        self.start_from_state_dir = '/home/bet_adsorption_xinpw8/pokegym/pokegym/save_state_dir/start_from_state_dir' if 'start_from_state_dir' not in env_config else env_config['start_from_state_dir']
+        self.start_from_state_dir = '/bet_adsorption_xinpw8/PufferLib/pokegym/pokegym/save_state_dir/start_from_state_dir' if 'start_from_state_dir' not in env_config else env_config['start_from_state_dir']
         self.save_state_dir = Path(env_config['save_state_dir']) if 'save_state_dir' in env_config else None if 'save_state_dir' not in env_config else env_config['save_state_dir']
         self.randomization = 0 if 'randomization' not in env_config else env_config['randomization']
         self.special_exploration_scale = 0 if 'special_exploration_scale' not in env_config else env_config['special_exploration_scale']
@@ -165,6 +165,7 @@ class Environment(Env):
         # BET ADDED
         self.counts_map = np.zeros((444, 436))
         self.last_map = -1
+        self.tg_init_map_mem()
         
         if self.max_steps is None:
             assert self.env_max_steps, 'max_steps and env_max_steps cannot be both None'
@@ -1834,9 +1835,12 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
             # if not instant text speed, then set it to instant
             txt_value = self.read_ram_m(RAM.wd730)
             self.pyboy.set_memory_value(RAM.wd730.value, self.set_bit(txt_value, 6))
-        if self.enable_stage_manager and action < 4:
-            # enforce stage_manager.blockings
-            action = self.scripted_stage_blocking(action)
+            
+        # BET ADDED (COMMENTED OUT) - diable the stage_manager_blocking so agent can keep going!
+        # if self.enable_stage_manager and action < 4:
+        #     # enforce stage_manager.blockings
+        #     action = self.scripted_stage_blocking(action)
+            
         if self.enable_item_purchaser and self.current_map_id - 1 in MART_MAP_IDS and action == 4:
             can_buy = self.scripted_buy_items()
             if can_buy:
