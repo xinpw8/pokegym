@@ -166,6 +166,7 @@ class Environment(Env):
         self.counts_map = np.zeros((444, 436))
         self.last_map = -1
         self.tg_init_map_mem()
+        self.seen_map_id = 0 # not really using but throwing errors
         
         if self.max_steps is None:
             assert self.env_max_steps, 'max_steps and env_max_steps cannot be both None'
@@ -1427,10 +1428,11 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
         #     self.level_manager_initialized = True
         glob_r, glob_c = self.current_coords
         current_map = self.current_map_id - 1
-        self.update_heat_map(glob_r, glob_c, current_map)
+        if self.step_count % 1000:
+            self.update_heat_map(glob_r, glob_c, current_map)
         info = {}
         # if self.step_count % 20000 == 0:
-        if self.step_count % 100000 == 0:
+        if self.step_count % 5000 == 0:
         # if step_limit_reached:
             info = self.tg_agent_stats()
             # print(f'ENVIRONMENT.PY LINE1398 tg_agent_states={self.tg_agent_stats()}')
@@ -1836,7 +1838,7 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
             txt_value = self.read_ram_m(RAM.wd730)
             self.pyboy.set_memory_value(RAM.wd730.value, self.set_bit(txt_value, 6))
             
-        # BET ADDED (COMMENTED OUT) - diable the stage_manager_blocking so agent can keep going!
+        # BET ADDED (COMMENTED OUT) - disable the stage_manager_blocking so agent can keep going!
         # if self.enable_stage_manager and action < 4:
         #     # enforce stage_manager.blockings
         #     action = self.scripted_stage_blocking(action)
@@ -1943,6 +1945,12 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
                 # "hidden_obj": sum(self.seen_hidden_objs.values()),
                 "deaths": self.died_count,
                 "badge": self.get_badges(),
+                "badge_1": float(self.get_badges() >= 1),
+                "badge_2": float(self.get_badges() >= 2),
+                "badge_3": float(self.get_badges() >= 3),
+                "badge_4": float(self.get_badges() >= 4),
+                "badge_5": float(self.get_badges() >= 5),
+                "badge_6": float(self.get_badges() >= 6),
                 "event": self.progress_reward["event"],
                 "healr": self.total_healing_rew,
                 # "action_hist": self.action_hist,
@@ -1973,7 +1981,7 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
                 'hm_usabler': self.progress_reward['hm_usable'],
                 # 'hm_mover': self.progress_reward['hm_move'],
                 'rewards': self.total_reward,
-                # 'early_done': self.early_done,
+                'early_done': self.early_done,
                 'special_key_itemsr': self.progress_reward['special_key_items'],
                 'special_seen_coords_count': self.special_seen_coords_count,
             },
@@ -2003,7 +2011,7 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
             'hp': self.last_health,  # use last health to avoid performance hit
             'pcount': self.last_num_poke,  # use last num poke to avoid performance hit
             'healr': self.progress_reward['heal'],
-            # 'es_min_reward': self.early_stopping_min_reward,
+            'es_min_reward': self.early_stopping_min_reward,
             'n_pc_swap': self.use_pc_swap_count,
             'n_buy': self.use_mart_count,
             'current_level': self.current_level,
@@ -2162,15 +2170,19 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
             #         num_badges = self.get_badges()
             #         print(f'elite 4 early done, step: {self.step_count}, r1: {self.past_rewards[0]:6.2f}, r2: {self.past_rewards[1600]:6.2f}, badges: {num_badges}')
             #         self.elite_4_early_done = True
-            # else:
-            self.early_done = self.past_rewards[0] - self.past_rewards[-1] < (self.early_stopping_min_reward * self.reward_scale)
+            # else: 
+            try:           
+                self.early_done = self.past_rewards[0] - self.past_rewards[-1] < (self.early_stopping_min_reward * self.reward_scale)
+            except:
+                pass
             if self.early_done:
                 if self.elite_4_early_done:
                     num_badges = self.get_badges()
                     print(f'elite 4 early done, step: {self.env_id}:{self.step_count}, r1: {self.past_rewards[0]:6.2f}, r2: {self.past_rewards[1600]:6.2f}, badges: {num_badges}')
                     self.elite_4_early_done = True
                 else:
-                    logging.info(f'early stopping, location: {MAP_ID_REF[self.seen_map_id]}, step: {self.env_id}:{self.step_count}, r1: {self.past_rewards[0]:6.2f}, r2: {self.past_rewards[-1]:6.2f}')
+                    pass
+                    # logging.info(f'early stopping, location: {MAP_ID_REF[self.seen_map_id]}, step: {self.env_id}:{self.step_count}, r1: {self.past_rewards[0]:6.2f}, r2: {self.past_rewards[-1]:6.2f}')
                     # print(f'early stopping, location: {MAP_ID_REF[self.seen_map_id]}, step: {self.env_id}:{self.step_count}, r1: {self.past_rewards[0]:6.2f}, r2: {self.past_rewards[-1]:6.2f}')
         return self.early_done
 
