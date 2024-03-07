@@ -1362,7 +1362,7 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
         #     self.update_frame_knn_index(obs_flat)
         # else:
         self.update_seen_coords()
-        self.tg_update_seen_coords()   
+        # self.tg_update_seen_coords()   
             
         self.update_heal_reward()
         self.update_num_poke()
@@ -1898,12 +1898,12 @@ Dict('event_ids': Box(0, 2570, (128,), int16), 'event_step_since': Box(-1.0, 1.0
     def get_game_coords(self):
         return (self.read_m(0xD362), self.read_m(0xD361), self.read_m(0xD35E))
 
-    def tg_update_seen_coords(self):
-        x_pos, y_pos, map_n = self.get_game_coords()
-        self.seen_coords[(x_pos, y_pos, map_n)] = 1
-        self.explore_map[local_to_global(y_pos, x_pos, map_n)] += 1 # BET ADDED += instead of =
-        # self.seen_global_coords[local_to_global(y_pos, x_pos, map_n)] = 1
-        self.seen_map_ids[map_n] = 1
+    # def tg_update_seen_coords(self):
+    #     x_pos, y_pos, map_n = self.get_game_coords()
+    #     self.seen_coords[(x_pos, y_pos, map_n)] = 1
+    #     self.explore_map[local_to_global(y_pos, x_pos, map_n)] += 1 # BET ADDED += instead of =
+    #     # self.seen_global_coords[local_to_global(y_pos, x_pos, map_n)] = 1
+    #     self.seen_map_ids[map_n] = 1
 
     def get_explore_map(self):
         explore_map = np.zeros(GLOBAL_MAP_SHAPE)
