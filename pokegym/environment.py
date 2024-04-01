@@ -57,6 +57,8 @@ import pandas as pd
 import csv
 
 STATE_PATH = __file__.rstrip("environment.py") + "current_state/"
+TESTING_STATE_PATH = __file__.rstrip("environment.py") + "unused_states/"
+
 CUT_GRASS_SEQ = deque([(0x52, 255, 1, 0, 1, 1), (0x52, 255, 1, 0, 1, 1), (0x52, 1, 1, 0, 1, 1)])
 CUT_FAIL_SEQ = deque([(-1, 255, 0, 0, 4, 1), (-1, 255, 0, 0, 1, 1), (-1, 255, 0, 0, 1, 1)])
 CUT_SEQ = [((0x3D, 1, 1, 0, 4, 1), (0x3D, 1, 1, 0, 1, 1)), ((0x50, 1, 1, 0, 4, 1), (0x50, 1, 1, 0, 1, 1)),]
@@ -130,8 +132,12 @@ class Base:
         """Creates a PokemonRed environment"""
         if state_path is None:
             state_path = STATE_PATH + "Bulbasaur.state"
+            
+        testing_state_path = TESTING_STATE_PATH + 'cut2.state'
+            
         self.game, self.screen = make_env(rom_path, headless, quiet, save_video=False, **kwargs)
         self.initial_states = [open_state_file(state_path)]
+        self.testing_states = [open_state_file(testing_state_path)] # BET ADDED TESTING SAVE/LOAD
         self.save_video = save_video
         self.headless = headless
         self.mem_padding = 2
@@ -255,6 +261,9 @@ class Base:
         return self.initial_states[len(self.initial_states) - 1]
     
     def load_first_state(self):
+        return self.initial_states[0]
+    
+    def load_testing_state(self):
         return self.initial_states[0]
     
     def load_random_state(self):
@@ -1390,7 +1399,7 @@ class Environment(Base):
                     f.write(f'F')
 
 
-    def reset(self, seed=None, options=None, max_episode_steps=20480, reward_scale=4.0): # 20480
+    def reset(self, seed=None, options=None, max_episode_steps=204, reward_scale=4.0): # 20480
         """Resets the game. Seeding is NOT supported"""
         # BET ADDED
         self.init_map_mem()
@@ -1400,8 +1409,12 @@ class Environment(Base):
         self.base_event_flags = self.get_base_event_flags()
         
         if self.reset_count == 0:
-            print(f'reset count=0')
+            print(f'reset count={self.reset_count}')
             load_pyboy_state(self.game, self.load_first_state())
+            
+        if self.reset_count == 5:
+            print(f'reset count={self.reset_count}')
+            load_pyboy_state(self.game, self.load_testing_state())
         
         if self.save_video:
             base_dir = self.s_path
@@ -1500,7 +1513,7 @@ class Environment(Base):
         if self.reset_count == 0:
             self.save_all_states()
             
-        if self.reset_count % 2 == 0:
+        if self.reset_count % 10 == 0:
             self.load_most_recent_state()
 
         return self.render(), {}
@@ -1998,7 +2011,7 @@ class Environment(Base):
         
         # if done:
         #     self.save_state()
-        if done or self.time % 10000 == 0:   
+        if done or self.time % 100 == 0:   # 10000
             levels = [self.game.get_memory_value(a) for a in [0xD18C, 0xD1B8, 0xD1E4, 0xD210, 0xD23C, 0xD268]]       
             info = {
                 "pokemon_exploration_map": self.counts_map, # self.explore_map, #  self.counts_map, 
