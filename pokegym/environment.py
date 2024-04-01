@@ -52,6 +52,7 @@ import uuid
 from math import floor, sqrt
 from typing import Union
 from .constants import POKECENTER_TO_INDEX_DICT
+from .constants import HARDCODED_SAVE_PATH
 import pandas as pd
 import csv
 
@@ -215,6 +216,10 @@ class Base:
         self.save_final_state = True
         self.total_reward = 0
         self.last_event_rew = 0
+        self.level_manager_eval_mode = False
+        self.all_runs = []
+        self._last_episode_stats = None
+        
         
     # Turns a method into a memoized property - property-access cached data cheaply!
     # May use this later but probably not.
@@ -1397,11 +1402,7 @@ class Environment(Base):
         if self.reset_count == 0:
             print(f'reset count=0')
             load_pyboy_state(self.game, self.load_first_state())
-            self.save_all_states()
         
-        if self.reset_count % 2 == 0:
-            self.load_most_recent_state()
-            
         if self.save_video:
             base_dir = self.s_path
             base_dir.mkdir(parents=True, exist_ok=True)
@@ -1495,7 +1496,12 @@ class Environment(Base):
         self.visited_pokecenter_list = []
         
         self.used_cut_coords_dict = {}
-     
+        
+        if self.reset_count == 0:
+            self.save_all_states()
+            
+        if self.reset_count % 2 == 0:
+            self.load_most_recent_state()
 
         return self.render(), {}
     
