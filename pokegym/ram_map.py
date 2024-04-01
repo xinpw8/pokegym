@@ -20,8 +20,9 @@ OAK_PARCEL_ADDR = 0xD74E
 OAK_POKEDEX_ADDR = 0xD74B
 OPPONENT_LEVEL = 0xCFF3
 ENEMY_POKE_COUNT = 0xD89C
-EVENT_FLAGS_START_ADDR = 0xD747
-EVENT_FLAGS_END_ADDR = 0xD886 # 0xD761
+EVENT_FLAGS_START = 0xD747
+EVENT_FLAGS_END = 0xD886 # 0xD761
+EVENTS_FLAGS_LENGTH = EVENT_FLAGS_END - EVENT_FLAGS_START
 MUSEUM_TICKET_ADDR = 0xD754
 USED_CELL_SEPARATOR_ADDR = 0xD7F2
 MONEY_ADDR_1 = 0xD347
@@ -1089,153 +1090,6 @@ wDayCareInUse = 0xda48
 wBoxMonNicksEnd = 0xdee2
 wStack = 0xdfff
 
-
-items_dict = {
-    1: {'decimal': 1, 'hex': '0x01', 'Item': 'Master Ball'},
-    2: {'decimal': 2, 'hex': '0x02', 'Item': 'Ultra Ball'},
-    3: {'decimal': 3, 'hex': '0x03', 'Item': 'Great Ball'},
-    4: {'decimal': 4, 'hex': '0x04', 'Item': 'Poké Ball'},
-    5: {'decimal': 5, 'hex': '0x05', 'Item': 'Town Map'},
-    6: {'decimal': 6, 'hex': '0x06', 'Item': 'Bicycle'},
-    7: {'decimal': 7, 'hex': '0x07', 'Item': '?????'},
-    8: {'decimal': 8, 'hex': '0x08', 'Item': 'Safari Ball'},
-    9: {'decimal': 9, 'hex': '0x09', 'Item': 'Pokédex'},
-    10: {'decimal': 10, 'hex': '0x0A', 'Item': 'Moon Stone'},
-    11: {'decimal': 11, 'hex': '0x0B', 'Item': 'Antidote'},
-    12: {'decimal': 12, 'hex': '0x0C', 'Item': 'Burn Heal'},
-    13: {'decimal': 13, 'hex': '0x0D', 'Item': 'Ice Heal'},
-    14: {'decimal': 14, 'hex': '0x0E', 'Item': 'Awakening'},
-    15: {'decimal': 15, 'hex': '0x0F', 'Item': 'Parlyz Heal'},
-    16: {'decimal': 16, 'hex': '0x10', 'Item': 'Full Restore'},
-    17: {'decimal': 17, 'hex': '0x11', 'Item': 'Max Potion'},
-    18: {'decimal': 18, 'hex': '0x12', 'Item': 'Hyper Potion'},
-    19: {'decimal': 19, 'hex': '0x13', 'Item': 'Super Potion'},
-    20: {'decimal': 20, 'hex': '0x14', 'Item': 'Potion'},
-    21: {'decimal': 21, 'hex': '0x15', 'Item': 'BoulderBadge'},
-    22: {'decimal': 22, 'hex': '0x16', 'Item': 'CascadeBadge'},
-    23: {'decimal': 23, 'hex': '0x17', 'Item': 'ThunderBadge'},
-    24: {'decimal': 24, 'hex': '0x18', 'Item': 'RainbowBadge'},
-    25: {'decimal': 25, 'hex': '0x19', 'Item': 'SoulBadge'},
-    26: {'decimal': 26, 'hex': '0x1A', 'Item': 'MarshBadge'},
-    27: {'decimal': 27, 'hex': '0x1B', 'Item': 'VolcanoBadge'},
-    28: {'decimal': 28, 'hex': '0x1C', 'Item': 'EarthBadge'},
-    29: {'decimal': 29, 'hex': '0x1D', 'Item': 'Escape Rope'},
-    30: {'decimal': 30, 'hex': '0x1E', 'Item': 'Repel'},
-    31: {'decimal': 31, 'hex': '0x1F', 'Item': 'Old Amber'},
-    32: {'decimal': 32, 'hex': '0x20', 'Item': 'Fire Stone'},
-    33: {'decimal': 33, 'hex': '0x21', 'Item': 'Thunderstone'},
-    34: {'decimal': 34, 'hex': '0x22', 'Item': 'Water Stone'},
-    35: {'decimal': 35, 'hex': '0x23', 'Item': 'HP Up'},
-    36: {'decimal': 36, 'hex': '0x24', 'Item': 'Protein'},
-    37: {'decimal': 37, 'hex': '0x25', 'Item': 'Iron'},
-    38: {'decimal': 38, 'hex': '0x26', 'Item': 'Carbos'},
-    39: {'decimal': 39, 'hex': '0x27', 'Item': 'Calcium'},
-    40: {'decimal': 40, 'hex': '0x28', 'Item': 'Rare Candy'},
-    41: {'decimal': 41, 'hex': '0x29', 'Item': 'Dome Fossil'},
-    42: {'decimal': 42, 'hex': '0x2A', 'Item': 'Helix Fossil'},
-    43: {'decimal': 43, 'hex': '0x2B', 'Item': 'Secret Key'},
-    44: {'decimal': 44, 'hex': '0x2C', 'Item': '?????'},
-    45: {'decimal': 45, 'hex': '0x2D', 'Item': 'Bike Voucher'},
-    46: {'decimal': 46, 'hex': '0x2E', 'Item': 'X Accuracy'},
-    47: {'decimal': 47, 'hex': '0x2F', 'Item': 'Leaf Stone'},
-    48: {'decimal': 48, 'hex': '0x30', 'Item': 'Card Key'},
-    49: {'decimal': 49, 'hex': '0x31', 'Item': 'Nugget'},
-    50: {'decimal': 50, 'hex': '0x32', 'Item': 'PP Up*'},
-    51: {'decimal': 51, 'hex': '0x33', 'Item': 'Poké Doll'},
-    52: {'decimal': 52, 'hex': '0x34', 'Item': 'Full Heal'},
-    53: {'decimal': 53, 'hex': '0x35', 'Item': 'Revive'},
-    54: {'decimal': 54, 'hex': '0x36', 'Item': 'Max Revive'},
-    55: {'decimal': 55, 'hex': '0x37', 'Item': 'Guard Spec.'},
-    56: {'decimal': 56, 'hex': '0x38', 'Item': 'Super Repel'},
-    57: {'decimal': 57, 'hex': '0x39', 'Item': 'Max Repel'},
-    58: {'decimal': 58, 'hex': '0x3A', 'Item': 'Dire Hit'},
-    59: {'decimal': 59, 'hex': '0x3B', 'Item': 'Coin'},
-    60: {'decimal': 60, 'hex': '0x3C', 'Item': 'Fresh Water'},
-    61: {'decimal': 61, 'hex': '0x3D', 'Item': 'Soda Pop'},
-    62: {'decimal': 62, 'hex': '0x3E', 'Item': 'Lemonade'},
-    63: {'decimal': 63, 'hex': '0x3F', 'Item': 'S.S. Ticket'},
-    64: {'decimal': 64, 'hex': '0x40', 'Item': 'Gold Teeth'},
-    65: {'decimal': 65, 'hex': '0x41', 'Item': 'X Attack'},
-    66: {'decimal': 66, 'hex': '0x42', 'Item': 'X Defend'},
-    67: {'decimal': 67, 'hex': '0x43', 'Item': 'X Speed'},
-    68: {'decimal': 68, 'hex': '0x44', 'Item': 'X Special'},
-    69: {'decimal': 69, 'hex': '0x45', 'Item': 'Coin Case'},
-    70: {'decimal': 70, 'hex': '0x46', 'Item': "Oak's Parcel"},
-    71: {'decimal': 71, 'hex': '0x47', 'Item': 'Itemfinder'},
-    72: {'decimal': 72, 'hex': '0x48', 'Item': 'Silph Scope'},
-    73: {'decimal': 73, 'hex': '0x49', 'Item': 'Poké Flute'},
-    74: {'decimal': 74, 'hex': '0x4A', 'Item': 'Lift Key'},
-    75: {'decimal': 75, 'hex': '0x4B', 'Item': 'Exp. All'},
-    76: {'decimal': 76, 'hex': '0x4C', 'Item': 'Old Rod'},
-    77: {'decimal': 77, 'hex': '0x4D', 'Item': 'Good Rod'},
-    78: {'decimal': 78, 'hex': '0x4E', 'Item': 'Super Rod'},
-    79: {'decimal': 79, 'hex': '0x4F', 'Item': 'PP Up'},
-    80: {'decimal': 80, 'hex': '0x50', 'Item': 'Ether'},
-    81: {'decimal': 81, 'hex': '0x51', 'Item': 'Max Ether'},
-    82: {'decimal': 82, 'hex': '0x52', 'Item': 'Elixer'},
-    83: {'decimal': 83, 'hex': '0x53', 'Item': 'Max Elixer'},
-    196: {'decimal': 196, 'hex': '0xC4', 'Item': 'HM01'},
-    197: {'decimal': 197, 'hex': '0xC5', 'Item': 'HM02'},
-    198: {'decimal': 198, 'hex': '0xC6', 'Item': 'HM03'},
-    199: {'decimal': 199, 'hex': '0xC7', 'Item': 'HM04'},
-    200: {'decimal': 200, 'hex': '0xC8', 'Item': 'HM05'},
-    201: {'decimal': 201, 'hex': '0xC9', 'Item': 'TM01'},
-    202: {'decimal': 202, 'hex': '0xCA', 'Item': 'TM02'},
-    203: {'decimal': 203, 'hex': '0xCB', 'Item': 'TM03'},
-    204: {'decimal': 204, 'hex': '0xCC', 'Item': 'TM04'},
-    205: {'decimal': 205, 'hex': '0xCD', 'Item': 'TM05'},
-    206: {'decimal': 206, 'hex': '0xCE', 'Item': 'TM06'},
-    207: {'decimal': 207, 'hex': '0xCF', 'Item': 'TM07'},
-    208: {'decimal': 208, 'hex': '0xD0', 'Item': 'TM08'},
-    209: {'decimal': 209, 'hex': '0xD1', 'Item': 'TM09'},
-    210: {'decimal': 210, 'hex': '0xD2', 'Item': 'TM10'},
-    211: {'decimal': 211, 'hex': '0xD3', 'Item': 'TM11'},
-    212: {'decimal': 212, 'hex': '0xD4', 'Item': 'TM12'},
-    213: {'decimal': 213, 'hex': '0xD5', 'Item': 'TM13'},
-    214: {'decimal': 214, 'hex': '0xD6', 'Item': 'TM14'},
-    215: {'decimal': 215, 'hex': '0xD7', 'Item': 'TM15'},
-    216: {'decimal': 216, 'hex': '0xD8', 'Item': 'TM16'},
-    217: {'decimal': 217, 'hex': '0xD9', 'Item': 'TM17'},
-    218: {'decimal': 218, 'hex': '0xDA', 'Item': 'TM18'},
-    219: {'decimal': 219, 'hex': '0xDB', 'Item': 'TM19'},
-    220: {'decimal': 220, 'hex': '0xDC', 'Item': 'TM20'},
-    221: {'decimal': 221, 'hex': '0xDD', 'Item': 'TM21'},
-    222: {'decimal': 222, 'hex': '0xDE', 'Item': 'TM22'},
-    223: {'decimal': 223, 'hex': '0xDF', 'Item': 'TM23'},
-    224: {'decimal': 224, 'hex': '0xE0', 'Item': 'TM24'},
-    225: {'decimal': 225, 'hex': '0xE1', 'Item': 'TM25'},
-    226: {'decimal': 226, 'hex': '0xE2', 'Item': 'TM26'},
-    227: {'decimal': 227, 'hex': '0xE3', 'Item': 'TM27'},
-    228: {'decimal': 228, 'hex': '0xE4', 'Item': 'TM28'},
-    229: {'decimal': 229, 'hex': '0xE5', 'Item': 'TM29'},
-    230: {'decimal': 230, 'hex': '0xE6', 'Item': 'TM30'},
-    231: {'decimal': 231, 'hex': '0xE7', 'Item': 'TM31'},
-    232: {'decimal': 232, 'hex': '0xE8', 'Item': 'TM32'},
-    233: {'decimal': 233, 'hex': '0xE9', 'Item': 'TM33'},
-    234: {'decimal': 234, 'hex': '0xEA', 'Item': 'TM34'},
-    235: {'decimal': 235, 'hex': '0xEB', 'Item': 'TM35'},
-    236: {'decimal': 236, 'hex': '0xEC', 'Item': 'TM36'},
-    237: {'decimal': 237, 'hex': '0xED', 'Item': 'TM37'},
-    238: {'decimal': 238, 'hex': '0xEE', 'Item': 'TM38'},
-    239: {'decimal': 239, 'hex': '0xEF', 'Item': 'TM39'},
-    240: {'decimal': 240, 'hex': '0xF0', 'Item': 'TM40'},
-    241: {'decimal': 241, 'hex': '0xF1', 'Item': 'TM41'},
-    242: {'decimal': 242, 'hex': '0xF2', 'Item': 'TM42'},
-    243: {'decimal': 243, 'hex': '0xF3', 'Item': 'TM43'},
-    244: {'decimal': 244, 'hex': '0xF4', 'Item': 'TM44'},
-    245: {'decimal': 245, 'hex': '0xF5', 'Item': 'TM45'},
-    246: {'decimal': 246, 'hex': '0xF6', 'Item': 'TM46'},
-    247: {'decimal': 247, 'hex': '0xF7', 'Item': 'TM47'},
-    248: {'decimal': 248, 'hex': '0xF8', 'Item': 'TM48'},
-    249: {'decimal': 249, 'hex': '0xF9', 'Item': 'TM49'},
-    250: {'decimal': 250, 'hex': '0xFA', 'Item': 'TM50'},
-    251: {'decimal': 251, 'hex': '0xFB', 'Item': 'TM51'},
-    252: {'decimal': 252, 'hex': '0xFC', 'Item': 'TM52'},
-    253: {'decimal': 253, 'hex': '0xFD', 'Item': 'TM53'},
-    254: {'decimal': 254, 'hex': '0xFE', 'Item': 'TM54'},
-    255: {'decimal': 255, 'hex': '0xFF', 'Item': 'TM55'},
-}
-
 pokemon_data = [
     {'hex': '1', 'decimal': '1', 'name': 'Rhydon'},
     {'hex': '2', 'decimal': '2', 'name': 'Kangaskhan'},
@@ -1416,152 +1270,6 @@ pokemon_data = [
 ]
 
 
-items_dict = {
-    1: {'decimal': 1, 'hex': '0x01', 'Item': 'Master Ball'},
-    2: {'decimal': 2, 'hex': '0x02', 'Item': 'Ultra Ball'},
-    3: {'decimal': 3, 'hex': '0x03', 'Item': 'Great Ball'},
-    4: {'decimal': 4, 'hex': '0x04', 'Item': 'Poké Ball'},
-    5: {'decimal': 5, 'hex': '0x05', 'Item': 'Town Map'},
-    6: {'decimal': 6, 'hex': '0x06', 'Item': 'Bicycle'},
-    7: {'decimal': 7, 'hex': '0x07', 'Item': '?????'},
-    8: {'decimal': 8, 'hex': '0x08', 'Item': 'Safari Ball'},
-    9: {'decimal': 9, 'hex': '0x09', 'Item': 'Pokédex'},
-    10: {'decimal': 10, 'hex': '0x0A', 'Item': 'Moon Stone'},
-    11: {'decimal': 11, 'hex': '0x0B', 'Item': 'Antidote'},
-    12: {'decimal': 12, 'hex': '0x0C', 'Item': 'Burn Heal'},
-    13: {'decimal': 13, 'hex': '0x0D', 'Item': 'Ice Heal'},
-    14: {'decimal': 14, 'hex': '0x0E', 'Item': 'Awakening'},
-    15: {'decimal': 15, 'hex': '0x0F', 'Item': 'Parlyz Heal'},
-    16: {'decimal': 16, 'hex': '0x10', 'Item': 'Full Restore'},
-    17: {'decimal': 17, 'hex': '0x11', 'Item': 'Max Potion'},
-    18: {'decimal': 18, 'hex': '0x12', 'Item': 'Hyper Potion'},
-    19: {'decimal': 19, 'hex': '0x13', 'Item': 'Super Potion'},
-    20: {'decimal': 20, 'hex': '0x14', 'Item': 'Potion'},
-    21: {'decimal': 21, 'hex': '0x15', 'Item': 'BoulderBadge'},
-    22: {'decimal': 22, 'hex': '0x16', 'Item': 'CascadeBadge'},
-    23: {'decimal': 23, 'hex': '0x17', 'Item': 'ThunderBadge'},
-    24: {'decimal': 24, 'hex': '0x18', 'Item': 'RainbowBadge'},
-    25: {'decimal': 25, 'hex': '0x19', 'Item': 'SoulBadge'},
-    26: {'decimal': 26, 'hex': '0x1A', 'Item': 'MarshBadge'},
-    27: {'decimal': 27, 'hex': '0x1B', 'Item': 'VolcanoBadge'},
-    28: {'decimal': 28, 'hex': '0x1C', 'Item': 'EarthBadge'},
-    29: {'decimal': 29, 'hex': '0x1D', 'Item': 'Escape Rope'},
-    30: {'decimal': 30, 'hex': '0x1E', 'Item': 'Repel'},
-    31: {'decimal': 31, 'hex': '0x1F', 'Item': 'Old Amber'},
-    32: {'decimal': 32, 'hex': '0x20', 'Item': 'Fire Stone'},
-    33: {'decimal': 33, 'hex': '0x21', 'Item': 'Thunderstone'},
-    34: {'decimal': 34, 'hex': '0x22', 'Item': 'Water Stone'},
-    35: {'decimal': 35, 'hex': '0x23', 'Item': 'HP Up'},
-    36: {'decimal': 36, 'hex': '0x24', 'Item': 'Protein'},
-    37: {'decimal': 37, 'hex': '0x25', 'Item': 'Iron'},
-    38: {'decimal': 38, 'hex': '0x26', 'Item': 'Carbos'},
-    39: {'decimal': 39, 'hex': '0x27', 'Item': 'Calcium'},
-    40: {'decimal': 40, 'hex': '0x28', 'Item': 'Rare Candy'},
-    41: {'decimal': 41, 'hex': '0x29', 'Item': 'Dome Fossil'},
-    42: {'decimal': 42, 'hex': '0x2A', 'Item': 'Helix Fossil'},
-    43: {'decimal': 43, 'hex': '0x2B', 'Item': 'Secret Key'},
-    44: {'decimal': 44, 'hex': '0x2C', 'Item': '?????'},
-    45: {'decimal': 45, 'hex': '0x2D', 'Item': 'Bike Voucher'},
-    46: {'decimal': 46, 'hex': '0x2E', 'Item': 'X Accuracy'},
-    47: {'decimal': 47, 'hex': '0x2F', 'Item': 'Leaf Stone'},
-    48: {'decimal': 48, 'hex': '0x30', 'Item': 'Card Key'},
-    49: {'decimal': 49, 'hex': '0x31', 'Item': 'Nugget'},
-    50: {'decimal': 50, 'hex': '0x32', 'Item': 'PP Up*'},
-    51: {'decimal': 51, 'hex': '0x33', 'Item': 'Poké Doll'},
-    52: {'decimal': 52, 'hex': '0x34', 'Item': 'Full Heal'},
-    53: {'decimal': 53, 'hex': '0x35', 'Item': 'Revive'},
-    54: {'decimal': 54, 'hex': '0x36', 'Item': 'Max Revive'},
-    55: {'decimal': 55, 'hex': '0x37', 'Item': 'Guard Spec.'},
-    56: {'decimal': 56, 'hex': '0x38', 'Item': 'Super Repel'},
-    57: {'decimal': 57, 'hex': '0x39', 'Item': 'Max Repel'},
-    58: {'decimal': 58, 'hex': '0x3A', 'Item': 'Dire Hit'},
-    59: {'decimal': 59, 'hex': '0x3B', 'Item': 'Coin'},
-    60: {'decimal': 60, 'hex': '0x3C', 'Item': 'Fresh Water'},
-    61: {'decimal': 61, 'hex': '0x3D', 'Item': 'Soda Pop'},
-    62: {'decimal': 62, 'hex': '0x3E', 'Item': 'Lemonade'},
-    63: {'decimal': 63, 'hex': '0x3F', 'Item': 'S.S. Ticket'},
-    64: {'decimal': 64, 'hex': '0x40', 'Item': 'Gold Teeth'},
-    65: {'decimal': 65, 'hex': '0x41', 'Item': 'X Attack'},
-    66: {'decimal': 66, 'hex': '0x42', 'Item': 'X Defend'},
-    67: {'decimal': 67, 'hex': '0x43', 'Item': 'X Speed'},
-    68: {'decimal': 68, 'hex': '0x44', 'Item': 'X Special'},
-    69: {'decimal': 69, 'hex': '0x45', 'Item': 'Coin Case'},
-    70: {'decimal': 70, 'hex': '0x46', 'Item': "Oak's Parcel"},
-    71: {'decimal': 71, 'hex': '0x47', 'Item': 'Itemfinder'},
-    72: {'decimal': 72, 'hex': '0x48', 'Item': 'Silph Scope'},
-    73: {'decimal': 73, 'hex': '0x49', 'Item': 'Poké Flute'},
-    74: {'decimal': 74, 'hex': '0x4A', 'Item': 'Lift Key'},
-    75: {'decimal': 75, 'hex': '0x4B', 'Item': 'Exp. All'},
-    76: {'decimal': 76, 'hex': '0x4C', 'Item': 'Old Rod'},
-    77: {'decimal': 77, 'hex': '0x4D', 'Item': 'Good Rod'},
-    78: {'decimal': 78, 'hex': '0x4E', 'Item': 'Super Rod'},
-    79: {'decimal': 79, 'hex': '0x4F', 'Item': 'PP Up'},
-    80: {'decimal': 80, 'hex': '0x50', 'Item': 'Ether'},
-    81: {'decimal': 81, 'hex': '0x51', 'Item': 'Max Ether'},
-    82: {'decimal': 82, 'hex': '0x52', 'Item': 'Elixer'},
-    83: {'decimal': 83, 'hex': '0x53', 'Item': 'Max Elixer'},
-    196: {'decimal': 196, 'hex': '0xC4', 'Item': 'HM01'},
-    197: {'decimal': 197, 'hex': '0xC5', 'Item': 'HM02'},
-    198: {'decimal': 198, 'hex': '0xC6', 'Item': 'HM03'},
-    199: {'decimal': 199, 'hex': '0xC7', 'Item': 'HM04'},
-    200: {'decimal': 200, 'hex': '0xC8', 'Item': 'HM05'},
-    201: {'decimal': 201, 'hex': '0xC9', 'Item': 'TM01'},
-    202: {'decimal': 202, 'hex': '0xCA', 'Item': 'TM02'},
-    203: {'decimal': 203, 'hex': '0xCB', 'Item': 'TM03'},
-    204: {'decimal': 204, 'hex': '0xCC', 'Item': 'TM04'},
-    205: {'decimal': 205, 'hex': '0xCD', 'Item': 'TM05'},
-    206: {'decimal': 206, 'hex': '0xCE', 'Item': 'TM06'},
-    207: {'decimal': 207, 'hex': '0xCF', 'Item': 'TM07'},
-    208: {'decimal': 208, 'hex': '0xD0', 'Item': 'TM08'},
-    209: {'decimal': 209, 'hex': '0xD1', 'Item': 'TM09'},
-    210: {'decimal': 210, 'hex': '0xD2', 'Item': 'TM10'},
-    211: {'decimal': 211, 'hex': '0xD3', 'Item': 'TM11'},
-    212: {'decimal': 212, 'hex': '0xD4', 'Item': 'TM12'},
-    213: {'decimal': 213, 'hex': '0xD5', 'Item': 'TM13'},
-    214: {'decimal': 214, 'hex': '0xD6', 'Item': 'TM14'},
-    215: {'decimal': 215, 'hex': '0xD7', 'Item': 'TM15'},
-    216: {'decimal': 216, 'hex': '0xD8', 'Item': 'TM16'},
-    217: {'decimal': 217, 'hex': '0xD9', 'Item': 'TM17'},
-    218: {'decimal': 218, 'hex': '0xDA', 'Item': 'TM18'},
-    219: {'decimal': 219, 'hex': '0xDB', 'Item': 'TM19'},
-    220: {'decimal': 220, 'hex': '0xDC', 'Item': 'TM20'},
-    221: {'decimal': 221, 'hex': '0xDD', 'Item': 'TM21'},
-    222: {'decimal': 222, 'hex': '0xDE', 'Item': 'TM22'},
-    223: {'decimal': 223, 'hex': '0xDF', 'Item': 'TM23'},
-    224: {'decimal': 224, 'hex': '0xE0', 'Item': 'TM24'},
-    225: {'decimal': 225, 'hex': '0xE1', 'Item': 'TM25'},
-    226: {'decimal': 226, 'hex': '0xE2', 'Item': 'TM26'},
-    227: {'decimal': 227, 'hex': '0xE3', 'Item': 'TM27'},
-    228: {'decimal': 228, 'hex': '0xE4', 'Item': 'TM28'},
-    229: {'decimal': 229, 'hex': '0xE5', 'Item': 'TM29'},
-    230: {'decimal': 230, 'hex': '0xE6', 'Item': 'TM30'},
-    231: {'decimal': 231, 'hex': '0xE7', 'Item': 'TM31'},
-    232: {'decimal': 232, 'hex': '0xE8', 'Item': 'TM32'},
-    233: {'decimal': 233, 'hex': '0xE9', 'Item': 'TM33'},
-    234: {'decimal': 234, 'hex': '0xEA', 'Item': 'TM34'},
-    235: {'decimal': 235, 'hex': '0xEB', 'Item': 'TM35'},
-    236: {'decimal': 236, 'hex': '0xEC', 'Item': 'TM36'},
-    237: {'decimal': 237, 'hex': '0xED', 'Item': 'TM37'},
-    238: {'decimal': 238, 'hex': '0xEE', 'Item': 'TM38'},
-    239: {'decimal': 239, 'hex': '0xEF', 'Item': 'TM39'},
-    240: {'decimal': 240, 'hex': '0xF0', 'Item': 'TM40'},
-    241: {'decimal': 241, 'hex': '0xF1', 'Item': 'TM41'},
-    242: {'decimal': 242, 'hex': '0xF2', 'Item': 'TM42'},
-    243: {'decimal': 243, 'hex': '0xF3', 'Item': 'TM43'},
-    244: {'decimal': 244, 'hex': '0xF4', 'Item': 'TM44'},
-    245: {'decimal': 245, 'hex': '0xF5', 'Item': 'TM45'},
-    246: {'decimal': 246, 'hex': '0xF6', 'Item': 'TM46'},
-    247: {'decimal': 247, 'hex': '0xF7', 'Item': 'TM47'},
-    248: {'decimal': 248, 'hex': '0xF8', 'Item': 'TM48'},
-    249: {'decimal': 249, 'hex': '0xF9', 'Item': 'TM49'},
-    250: {'decimal': 250, 'hex': '0xFA', 'Item': 'TM50'},
-    251: {'decimal': 251, 'hex': '0xFB', 'Item': 'TM51'},
-    252: {'decimal': 252, 'hex': '0xFC', 'Item': 'TM52'},
-    253: {'decimal': 253, 'hex': '0xFD', 'Item': 'TM53'},
-    254: {'decimal': 254, 'hex': '0xFE', 'Item': 'TM54'},
-    255: {'decimal': 255, 'hex': '0xFF', 'Item': 'TM55'},
-}
-
 moves_dict = {
     1: {"Move": "Pound", "Type": "Normal", "Phy/Spec": "Physical", "PP": 35, "Power": 40, "Acc": "100%"},
     2: {"Move": "Karate Chop", "Type": "Fighting", "Phy/Spec": "Physical", "PP": 25, "Power": 50, "Acc": "100%"},
@@ -1736,13 +1444,9 @@ def bcd(num):
 def bit_count(bits):
     return bin(bits).count("1")
 
-def read_bit(game, addr, bit) -> bool:
-    # add padding so zero will read '0b100000000' instead of '0b0'
-    return bin(256 + game.get_memory_value(addr))[-bit - 1] == "1"
-
-def mem_val(game, addr):
-    mem = game.get_memory_value(addr)
-    return mem
+# def read_bit(game, addr, bit) -> bool:
+#     # add padding so zero will read '0b100000000' instead of '0b0'
+#     return bin(256 + game.get_memory_value(addr))[-bit - 1] == "1"
 
 def read_uint16(game, start_addr):
     """Read 2 bytes"""
@@ -1856,6 +1560,10 @@ def pokemon_caught(game):
     caught_bytes = [game.get_memory_value(addr) for addr in CAUGHT_POKE_ADDR]
     return sum([bit_count(b) for b in caught_bytes])
 
+# BET ADDED
+def read_hp(game, start):
+    return 256 * game.get_memory_value(start) + game.get_memory_value(start+1)
+
 def hp(game):
     """Percentage of total party HP"""
     party_hp = [read_uint16(game, addr) for addr in HP_ADDR]
@@ -1885,7 +1593,7 @@ def events(game):
     """Adds up all event flags, exclude museum ticket"""
     num_events = sum(
         bit_count(game.get_memory_value(i))
-        for i in range(EVENT_FLAGS_START_ADDR, EVENT_FLAGS_END_ADDR)
+        for i in range(EVENT_FLAGS_START, EVENT_FLAGS_END)
     )
     museum_ticket = int(read_bit(game, MUSEUM_TICKET_ADDR, 0))
 
@@ -2046,9 +1754,16 @@ def bcd(num):
 def bit_count(bits):
     return bits.bit_count() # bin(bits).count("1")
 
+# def read_bit(game, addr, bit) -> bool:
+#     # add padding so zero will read '0b100000000' instead of '0b0'
+#     return bin(256 + game.get_memory_value(addr))[-bit - 1] == "1"
+
 def read_bit(game, addr, bit) -> bool:
-    # add padding so zero will read '0b100000000' instead of '0b0'
-    return bin(256 + game.get_memory_value(addr))[-bit - 1] == "1"
+    return (game.get_memory_value(addr) & (1 << bit)) != 0
+
+@staticmethod
+def set_bit(value, bit):
+    return value | (1<<bit)
 
 def mem_val(game, addr):
     mem = game.get_memory_value(addr)
@@ -2057,48 +1772,6 @@ def mem_val(game, addr):
 def write_mem(game, addr, value):
     mem = game.set_memory_value(addr, value)
     return mem
-
-def read_uint16(game, start_addr):
-    """Read 2 bytes"""
-    val_256 = game.get_memory_value(start_addr)
-    val_1 = game.get_memory_value(start_addr + 1)
-    return 256 * val_256 + val_1
-
-STATUSDICT = {
-    0x08: 'Poison',
-    # 0x04: 'Burn',
-    # 0x05: 'Frozen',
-    # 0x06: 'Paralyze',
-    0x00: 'None',
-}   
-POKE = [0xD16B, 0xD197, 0xD1C3, 0xD1EF, 0xD21B, 0xD247] # - Pokémon (Again)
-STATUS = [0xD16F, 0xD19B, 0xD1C7, 0xD1F3, 0xD21F, 0xD24B] # - Status (Poisoned, Paralyzed, etc.)
-TYPE1 = [0xD170, 0xD19C, 0xD1C8, 0xD1F4, 0xD220, 0xD24C] # - Type 1
-TYPE2 = [0xD171, 0xD19D, 0xD1C9, 0xD1F5, 0xD221, 0xD24D] # - Type 2
-LEVEL = [0xD18C, 0xD1B8, 0xD1E4, 0xD210, 0xD23C, 0xD268] # - Level (actual level)
-MAXHP = [0xD18D, 0xD1B9, 0xD1E5, 0xD211, 0xD23D, 0xD269] # - Max HP if = 01 + 256 to MAXHP2 value
-CHP = [0xD16C, 0xD198, 0xD1C4, 0xD1F0, 0xD21C, 0xD248] # - Current HP if = 01 + 256
-
-def pokemon(game):
-    # Get memory values from the list POKE and LEVEL
-    memory_values = [game.get_memory_value(a) for a in POKE]
-    levels = [game.get_memory_value(a) for a in LEVEL]
-
-    # Use memory values to get corresponding names from pokemon_data
-    names = [entry['name'] for entry in pokemon_data if entry.get('decimal') and int(entry['decimal']) in memory_values]
-
-    # Create an initial dictionary with names as keys and levels as values
-    party_dict = dict(zip(names, levels))
-
-    return party_dict
-
-def update_pokemon_level(pokemon_dict, pokemon_name, new_level):
-    if pokemon_name in pokemon_dict:
-        # Update the level for the specified Pokémon
-        pokemon_dict[pokemon_name] = new_level
-    else:
-        # Add a new entry for the Pokémon
-        pokemon_dict[pokemon_name] = new_level
 
 # # Returns dict of party pokemons' names, levels, and moves for printing to text file:
 # def pokemon_l(game):
