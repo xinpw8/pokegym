@@ -1,3 +1,6 @@
+git clone https://github.com/xinpw8/pokegym.git -b BET_all_envs_badge_3_hideout_completed
+git clone https://github.com/xinpw8/PufferLib.git -b BET_pufferlib_0.7_all_envs_badge_3_hideout_completed
+
 # PokeGym Project Overview
 # original project author: https://github.com/PWhiddy/PokemonRedExperiments
 # join the Discord: http://discord.gg/RvadteZk4G
