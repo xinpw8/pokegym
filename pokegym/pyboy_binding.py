@@ -4,7 +4,6 @@ from io import BytesIO
 from pyboy import PyBoy
 from pyboy.utils import WindowEvent
 
-
 class Down:
     PRESS = WindowEvent.PRESS_ARROW_DOWN
     RELEASE = WindowEvent.RELEASE_ARROW_DOWN
