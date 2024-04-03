@@ -1,3 +1,8 @@
+## git clone https://github.com/xinpw8/pokegym.git -b BET_pokegym_badge_3_400m
+
+## git clone https://github.com/xinpw8/PufferLib.git -b BET_pufferlib_0.7_badge_3_400m
+
+
 # PokeGym Project Overview
 # original project author: https://github.com/PWhiddy/PokemonRedExperiments
 # join the Discord: http://discord.gg/RvadteZk4G
