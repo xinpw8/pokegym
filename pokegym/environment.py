@@ -26,7 +26,22 @@ from . import ram_map, game_map, data, ram_map_leanke
 import subprocess
 import multiprocessing
 import time
+import random
 from multiprocessing import Manager
+from pokegym import data
+
+from pokegym.constants import *
+from pokegym.bin.ram_reader.red_ram_api import *
+from pokegym.bin.ram_reader.red_memory_battle import *
+from pokegym.bin.ram_reader.red_memory_env import *
+from pokegym.bin.ram_reader.red_memory_items import *
+from pokegym.bin.ram_reader.red_memory_map import *
+from pokegym.bin.ram_reader.red_memory_menus import *
+from pokegym.bin.ram_reader.red_memory_player import *
+from pokegym.bin.ram_reader.red_ram_debug import *
+from enum import IntEnum
+from multiprocessing import Manager
+from .ram_addresses import RamAddress as RAM
 
 
 STATE_PATH = __file__.rstrip("environment.py") + "current_state/"
@@ -133,6 +148,9 @@ class Base:
         self.pokecenters = [41, 58, 64, 68, 81, 89, 133, 141, 154, 171, 147, 182]
         self.used_cut_on_map_n = 0
         
+        # BET ADDED nimixx api
+        self.api = Game(self.game) # import this class for api BET
+        
         R, C = self.screen.raw_screen_buffer_dims()
         self.obs_size = (R // 2, C // 2) # 72, 80, 3
 
@@ -147,6 +165,37 @@ class Base:
             low=0, high=255, dtype=np.uint8, shape=self.obs_size
         )
         self.action_space = spaces.Discrete(len(ACTIONS))
+        
+        # BET ADDED
+        # BET ADDED TREE 
+        self.min_distances = {}  # Key: Tree position, Value: minimum distance reached
+        self.rewarded_distances = {}  # Key: Tree position, Value: set of rewarded distances
+        self.used_cut_on_map_n = 0
+        self.seen_map_dict = {}
+        
+        # BET ADDED MORE
+        self.past_events_string = self.all_events_string
+        self._all_events_string = ''
+        self.time = 0
+        self.level_reward_badge_scale = 0
+        self.special_exploration_scale = 0
+        self.elite_4_lost = False
+        self.elite_4_early_done = False
+        self.elite_4_started_step = None
+        self.pokecenter_ids = [0x01, 0x02, 0x03, 0x0F, 0x15, 0x05, 0x06, 0x04, 0x07, 0x08, 0x0A, 0x09]
+        self.reward_scale = 1
+        self.has_lemonade_in_bag = False
+        self.has_silph_scope_in_bag = False
+        self.has_lift_key_in_bag = False
+        self.has_pokedoll_in_bag = False
+        self.has_bicycle_in_bag = False
+        self.has_lemonade_in_bag_reward = 0
+        self.has_silph_scope_in_bag_reward = 0
+        self.has_lift_key_in_bag_reward = 0
+        self.has_pokedoll_in_bag_reward = 0
+        self.has_bicycle_in_bag_reward = 0
+        self.gym_info = GYM_INFO
+        
     
     def save_screenshot(self, event, map_n):
         self.screenshot_counter += 1
@@ -224,11 +273,49 @@ class Base:
         else:
             return self.screen.screen_ndarray()[::2, ::2]
 
- # BET ADDED TREE OBSERVATIONS
-    def compute_tree_reward(self, player_pos, trees_positions, map_n, N=3, p=2, q=1):
+    # BET ADDED TREE OBSERVATIONS
+    def detect_and_reward_trees(self, player_grid_pos, map_n, vision_range=5):
         if map_n not in MAPS_WITH_TREES:
+            # print(f"\nNo trees to interact with in map {map_n}.")
             return 0.0
 
+        # Correct the coordinate order: player_x corresponds to glob_c, and player_y to glob_r
+        player_x, player_y = player_grid_pos  # Use the correct order based on your description
+
+        # print(f"\nPlayer Grid Position: (X: {player_x}, Y: {player_y})")
+        # print(f"Vision Range: {vision_range}")
+        # print(f"Trees in map {map_n}:")
+
+        tree_counter = 0  # For numbering trees
+        total_reward = 0.0
+        tree_counter = 0
+        for y, x, m in TREE_POSITIONS_PIXELS:
+            if m == map_n:
+                tree_counter += 1
+                tree_x, tree_y = x // 16, y // 16
+
+                # Adjusting print statement to reflect corrected tree position
+                corrected_tree_y = tree_y if not (tree_x == 212 and tree_y == 210) else 211
+                # print(f"  Tree #{tree_counter} Grid Position: (X: {tree_x}, Y: {corrected_tree_y})")
+
+                distance = abs(player_x - tree_x) + abs(player_y - corrected_tree_y)
+                # print(f"  Distance to Tree #{tree_counter}: {distance}")
+
+                if distance <= vision_range:
+                    reward = 1 / max(distance, 1)  # Prevent division by zero; assume at least distance of 1
+                    total_reward += reward
+                    # print(f"  Reward for Tree #{tree_counter}: {reward}\n")
+                else:
+                    pass# print(f"  Tree #{tree_counter} is outside vision range.\n")
+
+        # print(f"Total reward from trees: {total_reward}\n")
+        return total_reward
+        
+    def compute_tree_reward(self, player_pos, trees_positions, map_n, N=3, p=2, q=1):
+        if map_n not in MAPS_WITH_TREES:
+            # print(f"No cuttable trees in map {map_n}.")
+            return 0.0
+        
         trees_per_current_map_n = TREE_COUNT_PER_MAP[map_n]
         if self.used_cut_on_map_n >= trees_per_current_map_n:
             return 0.0
@@ -241,10 +328,10 @@ class Base:
         total_reward = 0
         nearest_trees_features = self.trees_features(player_pos, trees_positions, N)
         
-        for i, distance in enumerate(nearest_trees_features):
-            if distance <= 0:  # Avoid divide by zero
-                continue  # Skip this tree or assign a default reward
-
+        for i in range(N):
+            if i < len(nearest_trees_features):  # Ensure there are enough features
+                distance = nearest_trees_features[i]
+            
             tree_key = (trees_positions[i][0], trees_positions[i][1], map_n)
             if tree_key not in self.min_distances:
                 self.min_distances[tree_key] = float('inf')
@@ -259,54 +346,12 @@ class Base:
                 if distance == 1:  # Maximal reward for being directly adjacent
                     distance_reward = 1
                 else:
-                    distance_reward = 1 / (distance ** p)  # Ensure distance is never zero here
+                    distance_reward = 1 / (distance ** p)
                 
                 priority_reward = 1 / ((i+1) ** q)
                 total_reward += distance_reward * priority_reward
 
         return total_reward
-
-    # def compute_tree_reward(self, player_pos, trees_positions, map_n, N=3, p=2, q=1):
-    #     if map_n not in MAPS_WITH_TREES:
-    #         # print(f"No cuttable trees in map {map_n}.")
-    #         return 0.0
-        
-    #     trees_per_current_map_n = TREE_COUNT_PER_MAP[map_n]
-    #     if self.used_cut_on_map_n >= trees_per_current_map_n:
-    #         return 0.0
-
-    #     if not hasattr(self, 'min_distances'):
-    #         self.min_distances = {}
-    #     if not hasattr(self, 'rewarded_distances'):
-    #         self.rewarded_distances = {}
-
-    #     total_reward = 0
-    #     nearest_trees_features = self.trees_features(player_pos, trees_positions, N)
-        
-    #     for i in range(N):
-    #         if i < len(nearest_trees_features):  # Ensure there are enough features
-    #             distance = nearest_trees_features[i]
-            
-    #         tree_key = (trees_positions[i][0], trees_positions[i][1], map_n)
-    #         if tree_key not in self.min_distances:
-    #             self.min_distances[tree_key] = float('inf')
-            
-    #         if distance < self.min_distances[tree_key] and distance not in self.rewarded_distances.get(tree_key, set()):
-    #             self.min_distances[tree_key] = distance
-    #             if tree_key not in self.rewarded_distances:
-    #                 self.rewarded_distances[tree_key] = set()
-    #             self.rewarded_distances[tree_key].add(distance)
-                
-    #             # Adjust reward computation
-    #             if distance == 1:  # Maximal reward for being directly adjacent
-    #                 distance_reward = 1
-    #             else:
-    #                 distance_reward = 1 / (distance ** p)
-                
-    #             priority_reward = 1 / ((i+1) ** q)
-    #             total_reward += distance_reward * priority_reward
-
-    #     return total_reward
         
     def calculate_distance(self, player_pos, tree_pos):
         """Calculate the Manhattan distance from player to a tree."""
@@ -370,6 +415,23 @@ class Base:
     def init_hidden_obj_mem(self):
         self.seen_hidden_objs = set()
     
+    # BET ADDED
+    @property
+    def all_events_string(self):
+        if not hasattr(self, '_all_events_string'):
+            self._all_events_string = ''  # Default fallback
+            return self._all_events_string
+        else:
+            # cache all events string to improve performance
+            if not self._all_events_string:
+                event_flags_start = 0xD747
+                event_flags_end = 0xD886
+                result = ''
+                for i in range(event_flags_start, event_flags_end):
+                    result += bin(ram_map.mem_val(self.game, i))[2:].zfill(8)  # .zfill(8)
+                self._all_events_string = result
+            return self._all_events_string
+    
 
 class Environment(Base):
     def __init__(
@@ -421,6 +483,18 @@ class Environment(Base):
         # self.seen_coords = set() ## moved from reset
         self.state_loaded_instead_of_resetting_in_game = 0
         self.badge_count = 0
+        
+        # BET ADDED
+        self.saved_states_dict = {}
+        self.seen_maps_no_reward = set()
+        self.seen_coords_no_reward = set()
+        self.seen_map_dict = {}
+        self.is_warping = False
+        self.last_10_map_ids = np.zeros((10, 2), dtype=np.float32)
+        self.last_10_coords = np.zeros((10, 2), dtype=np.uint8)
+        self._all_events_string = ''
+        self.total_healing_rew = 0
+        self.last_health = 1
 
         # #for reseting at 7 resets - leave commented out
         # self.prev_map_n = None
@@ -447,6 +521,34 @@ class Environment(Base):
         # self.caught_pokemon = np.zeros(152, dtype=np.uint8)
         # self.moves_obtained = np.zeros(0xA5, dtype=np.uint8)
         
+    def read_hp_fraction(self):
+        hp_sum = sum([ram_map.read_hp(self.game, add) for add in [0xD16C, 0xD198, 0xD1C4, 0xD1F0, 0xD21C, 0xD248]])
+        max_hp_sum = sum([ram_map.read_hp(self.game, add) for add in [0xD18D, 0xD1B9, 0xD1E5, 0xD211, 0xD23D, 0xD269]])
+        if max_hp_sum:
+            return hp_sum / max_hp_sum
+        else:
+            return 0
+    
+    def update_heal_reward(self):
+        cur_health = self.read_hp_fraction()
+        if cur_health > self.last_health:
+            # fixed catching pokemon might treated as healing
+            # fixed leveling count as healing, min heal amount is 4%
+            heal_amount = cur_health - self.last_health
+            if self.last_num_poke == self.read_num_poke() and self.last_health > 0 and heal_amount > 0.04:
+                if heal_amount > (0.60 / self.read_num_poke()):
+                    # changed to static heal reward
+                    # 1 pokemon from 0 to 100% hp is 0.167 with 6 pokemon
+                    # so 0.1 total heal is around 60% hp
+                    print(f' healed: {heal_amount:.2f}')
+                    self.total_healing_rew += 0.1
+                # if heal_amount > 0.5:
+                #     print(f' healed: {heal_amount:.2f}')
+                #     # self.save_screenshot('healing')
+                # self.total_healing_rew += heal_amount * 1
+            elif self.last_health <= 0:
+                    self.d
+    
     def update_pokedex(self):
         for i in range(0xD30A - 0xD2F7):
             caught_mem = self.game.get_memory_value(i + 0xD2F7)
@@ -476,6 +578,7 @@ class Environment(Base):
                     move_id = self.game.get_memory_value(offset + j + 8)
                     if move_id != 0:
                         self.moves_obtained[move_id] = 1
+                        
     def get_items_in_bag(self, one_indexed=0):
         first_item = 0xD31E
         # total 20 items
@@ -614,9 +717,527 @@ class Environment(Base):
 
         if should_reward:
             self.rewarded_coords.add(new_position)
+            
+    def check_bag_for_silph_scope(self):
+        if 0x4A in self.get_items_in_bag():
+            if 0x48 in self.get_items_in_bag():
+                self.have_silph_scope = True
+                return self.have_silph_scope
+            
+    def current_coords(self):
+        return self.last_10_coords[0]
+    
+    def current_map_id(self):
+        return self.last_10_map_ids[0, 0]
+    
+    def update_seen_map_dict(self):
+        # if self.get_minimap_warp_obs()[4, 4] != 0:
+        #     return
+        cur_map_id = self.current_map_id() - 1
+        x, y = self.current_coords()
+        if cur_map_id not in self.seen_map_dict:
+            self.seen_map_dict[cur_map_id] = np.zeros((MAP_DICT[MAP_ID_REF[cur_map_id]]['height'], MAP_DICT[MAP_ID_REF[cur_map_id]]['width']), dtype=np.float32)
+            
+        # do not update if is warping
+        if not self.is_warping:
+            if y >= self.seen_map_dict[cur_map_id].shape[0] or x >= self.seen_map_dict[cur_map_id].shape[1]:
+                self.stuck_cnt += 1
+                # print(f'ERROR1: x: {x}, y: {y}, cur_map_id: {cur_map_id} ({MAP_ID_REF[cur_map_id]}), map.shape: {self.seen_map_dict[cur_map_id].shape}')
+                if self.stuck_cnt > 50:
+                    print(f'stucked for > 50 steps, force ES')
+                    self.early_done = True
+                    self.stuck_cnt = 0
+                # print(f'ERROR2: last 10 map ids: {self.last_10_map_ids}')
+            else:
+                self.stuck_cnt = 0
+                self.seen_map_dict[cur_map_id][y, x] = self.time
+
+    def get_badges(self):
+        badge_count = ram_map.bit_count(ram_map.mem_val(self.game, 0xD356))
+        # return badge_count
+        if badge_count < 8 or self.elite_4_lost or self.elite_4_early_done:
+            return badge_count
+        else:
+            # LORELEIS D863, bit 1
+            # BRUNOS D864, bit 1
+            # AGATHAS D865, bit 1
+            # LANCES D866, bit 1
+            # CHAMPION D867, bit 1
+            elite_four_event_addr_bits = [
+                [0xD863, 1],  # LORELEIS
+                [0xD864, 1],  # BRUNOS
+                [0xD865, 1],  # AGATHAS
+                [0xD866, 1],  # LANCES
+                [0xD867, 1],  # CHAMPION
+            ]
+            elite_4_extra_badges = 0
+            for addr_bit in elite_four_event_addr_bits:
+                if ram_map.read_bit(self.game, addr_bit[0], addr_bit[1]):
+                    elite_4_extra_badges += 1
+            return 8 + elite_4_extra_badges
+
+    def get_levels_sum(self):
+        poke_levels = [max(ram_map.mem_val(self.game, a) - 2, 0) for a in [0xD18C, 0xD1B8, 0xD1E4, 0xD210, 0xD23C, 0xD268]]
+        return max(sum(poke_levels) - 4, 0) # subtract starting pokemon level
+    
+    def read_event_bits(self):
+        return [
+            int(bit)
+            for i in range(ram_map.EVENT_FLAGS_START, ram_map.EVENT_FLAGS_START + ram_map.EVENTS_FLAGS_LENGTH)
+            for bit in f"{ram_map.read_bit(self.game, i):08b}"
+        ]
+    
+    def read_num_poke(self):
+        return ram_map.mem_val(self.game, 0xD163)
+    
+    def update_num_poke(self):
+        self.last_num_poke = self.read_num_poke()
+    
+    def get_max_n_levels_sum(self, n, max_level):
+        num_poke = self.read_num_poke()
+        poke_level_addresses = [0xD18C, 0xD1B8, 0xD1E4, 0xD210, 0xD23C, 0xD268]
+        poke_levels = [max(min(ram_map.mem_val(self.game, a), max_level) - 2, 0) for a in poke_level_addresses[:num_poke]]
+        return max(sum(sorted(poke_levels)[-n:]) - 4, 0)
+    
+    @property
+    def is_in_elite_4(self):
+        return self.current_map_id - 1 in [0xF5, 0xF6, 0xF7, 0x71, 0x78]
+    
+    def get_levels_reward(self):
+        if not self.level_reward_badge_scale:
+            level_sum = self.get_levels_sum()
+            self.max_level_rew = max(self.max_level_rew, level_sum)
+        else:
+            badge_count = min(self.get_badges(), 8)
+            gym_next = self.gym_info[badge_count]
+            gym_num_poke = gym_next['num_poke']
+            gym_max_level = gym_next['max_level'] * self.level_reward_badge_scale
+            level_reward = self.get_max_n_levels_sum(gym_num_poke, gym_max_level)  # changed, level reward for all 6 pokemon
+            if badge_count >= 7 and level_reward > self.max_level_rew and not self.is_in_elite_4:
+                level_diff = level_reward - self.max_level_rew
+                if level_diff > 6 and self.party_level_post == 0:
+                    # self.party_level_post = 0
+                    pass
+                else:
+                    self.party_level_post += level_diff
+            self.max_level_rew = max(self.max_level_rew, level_reward)
+        return ((self.max_level_rew - self.party_level_post) * 0.5) + (self.party_level_post * 2.0)
+        # return self.max_level_rew * 0.5  # 11/11-3 changed: from 0.5 to 1.0
+    
+    def get_special_key_items_reward(self):
+        items = self.get_items_in_bag()
+        special_cnt = 0
+        # SPECIAL_KEY_ITEM_IDS
+        for item_id in SPECIAL_KEY_ITEM_IDS:
+            if item_id in items:
+                special_cnt += 1
+        return special_cnt * 1.0
+    
+    def get_all_events_reward(self):
+        # adds up all event flags, exclude museum ticket
+        return max(
+            sum(
+                [
+                    ram_map.bit_count(self.game.get_memory_value(i))
+                    for i in range(ram_map.EVENT_FLAGS_START, ram_map.EVENT_FLAGS_START + ram_map.EVENTS_FLAGS_LENGTH)
+                ]
+            )
+            - self.base_event_flags
+            - int(ram_map.read_bit(self.game, *ram_map.MUSEUM_TICKET_ADDR)),
+            0,
+        )
+        
+    def update_max_event_rew(self):
+        cur_rew = self.get_all_events_reward()
+        self.max_event_rew = max(cur_rew, self.max_event_rew)
+        return self.max_event_rew
+    
+    def update_max_op_level(self):
+        #opponent_level = ram_map.mem_val(self.game, 0xCFE8) - 5 # base level
+        opponent_level = max([ram_map.mem_val(self.game, a) for a in [0xD8C5, 0xD8F1, 0xD91D, 0xD949, 0xD975, 0xD9A1]]) - 5
+        #if opponent_level >= 7:
+        #    self.save_screenshot('highlevelop')
+        self.max_opponent_level = max(self.max_opponent_level, opponent_level)
+        return self.max_opponent_level * 0.1  # 0.1
+    
+    def get_badges_reward(self):
+        num_badges = self.get_badges()
+        # if num_badges < 3:
+        #     return num_badges * 5
+        # elif num_badges > 2:
+        #     return 10 + ((num_badges - 2) * 10)  # reduced from 20 to 10
+        if num_badges < 9:
+            return num_badges * 5
+        elif num_badges < 13:  # env19v2 PPO23
+            return 40  # + ((num_badges - 8) * 1)
+        else:
+            return 40 + 10
+        # return num_badges * 5  # env18v4
+
+    def get_last_pokecenter_list(self):
+        pc_list = [0, ] * len(self.pokecenter_ids)
+        last_pokecenter_id = self.get_last_pokecenter_id()
+        if last_pokecenter_id != -1:
+            pc_list[last_pokecenter_id] = 1
+        return pc_list
+    
+    def get_last_pokecenter_id(self):
+        
+        last_pokecenter = ram_map.mem_val(self.game, 0xD719)
+        # will throw error if last_pokecenter not in pokecenter_ids, intended
+        if last_pokecenter == 0:
+            # no pokecenter visited yet
+            return -1
+        if last_pokecenter not in self.pokecenter_ids:
+            print(f'\nERROR: last_pokecenter: {last_pokecenter} not in pokecenter_ids')
+            return -1
+        else:
+            return self.pokecenter_ids.index(last_pokecenter)   
+    
+    def get_special_rewards(self):
+        rewards = 0
+        rewards += len(self.hideout_elevator_maps) * 2.0
+        bag_items = self.get_items_in_bag()
+        if 0x2B in bag_items:
+            # 6.0 full mansion rewards + 1.0 extra key items rewards
+            rewards += 7.0
+        return rewards
+    
+    def get_hm_usable_reward(self):
+        total = 0
+        if self.can_use_cut:
+            total += 1
+        if self.can_use_surf:
+            total += 1
+        return total * 2.0
+    
+    def get_special_key_items_reward(self):
+        items = self.get_items_in_bag()
+        special_cnt = 0
+        # SPECIAL_KEY_ITEM_IDS
+        for item_id in SPECIAL_KEY_ITEM_IDS:
+            if item_id in items:
+                special_cnt += 1
+        return special_cnt * 1.0
+    
+    def get_used_cut_coords_reward(self):
+        return len(self.used_cut_coords_dict) * 0.2
+    
+    def get_party_moves(self):
+        # first pokemon moves at D173
+        # 4 moves per pokemon
+        # next pokemon moves is 44 bytes away
+        first_move = 0xD173
+        moves = []
+        for i in range(0, 44*6, 44):
+            # 4 moves per pokemon
+            move = [ram_map.mem_val(self.game, first_move + i + j) for j in range(4)]
+            moves.extend(move)
+        return moves
+    
+    def get_hm_move_reward(self):
+        all_moves = self.get_party_moves()
+        hm_moves = [0x0f, 0x13, 0x39, 0x46, 0x94]
+        hm_move_count = 0
+        for hm_move in hm_moves:
+            if hm_move in all_moves:
+                hm_move_count += 1
+        return hm_move_count * 1.5
+    
+    def update_visited_pokecenter_list(self):
+        last_pokecenter_id = self.get_last_pokecenter_id()
+        if last_pokecenter_id != -1 and last_pokecenter_id not in self.visited_pokecenter_list:
+            self.visited_pokecenter_list.append(last_pokecenter_id)
+
+    def get_early_done_reward(self):
+        return self.elite_4_early_done * -0.3
+    
+    def get_visited_pokecenter_reward(self):
+        # reward for first time healed in pokecenter
+        return len(self.visited_pokecenter_list) * 2     
+    
+    def get_game_state_reward(self, print_stats=False):
+        # addresses from https://datacrystal.romhacking.net/wiki/Pok%C3%A9mon_Red/Blue:RAM_map
+        # https://github.com/pret/pokered/blob/91dc3c9f9c8fd529bb6e8307b58b96efa0bec67e/constants/event_constants.asm
+        '''
+        num_poke = ram_map.mem_val(self.game, 0xD163)
+        poke_xps = [self.read_triple(a) for a in [0xD179, 0xD1A5, 0xD1D1, 0xD1FD, 0xD229, 0xD255]]
+        #money = self.read_money() - 975 # subtract starting money
+        seen_poke_count = sum([self.bit_count(ram_map.mem_val(self.game, i)) for i in range(0xD30A, 0xD31D)])
+        all_events_score = sum([self.bit_count(ram_map.mem_val(self.game, i)) for i in range(0xD747, 0xD886)])
+        oak_parcel = self.read_bit(0xD74E, 1) 
+        oak_pokedex = self.read_bit(0xD74B, 5)
+        opponent_level = ram_map.mem_val(self.game, 0xCFF3)
+        self.max_opponent_level = max(self.max_opponent_level, opponent_level)
+        enemy_poke_count = ram_map.mem_val(self.game, 0xD89C)
+        self.max_opponent_poke = max(self.max_opponent_poke, enemy_poke_count)
+        
+        if print_stats:
+            print(f'num_poke : {num_poke}')
+            print(f'poke_levels : {poke_levels}')
+            print(f'poke_xps : {poke_xps}')
+            #print(f'money: {money}')
+            print(f'seen_poke_count : {seen_poke_count}')
+            print(f'oak_parcel: {oak_parcel} oak_pokedex: {oak_pokedex} all_events_score: {all_events_score}')
+        '''
+        last_event_rew = self.max_event_rew
+        self.max_event_rew = self.update_max_event_rew()
+        state_scores = {
+            'event': self.max_event_rew,  
+            #'party_xp': self.reward_scale*0.1*sum(poke_xps),
+            'level': self.get_levels_reward(), 
+            # 'heal': self.total_healing_rew,
+            'op_lvl': self.update_max_op_level(),
+            # 'dead': -self.get_dead_reward(),
+            'badge': self.get_badges_reward(),  # 5
+            #'op_poke':self.max_opponent_poke * 800,
+            #'money': money * 3,
+            #'seen_poke': self.reward_scale * seen_poke_count * 400,
+            # 'explore': self.get_knn_reward(last_event_rew),
+            'visited_pokecenter': self.get_visited_pokecenter_reward(),
+            'hm': self.get_hm_rewards(),
+            # 'hm_move': self.get_hm_move_reward(),  # removed this for now
+            'hm_usable': self.get_hm_usable_reward(),
+            'trees_cut': self.get_used_cut_coords_reward(),
+            'early_done': self.get_early_done_reward(),  # removed
+            'special_key_items': self.get_special_key_items_reward(),
+            'special': self.get_special_rewards(),
+            'heal': self.total_healing_rew,
+        }
+
+        # multiply by reward scale
+        state_scores = {k: v * self.reward_scale for k, v in state_scores.items()}
+        
+        return state_scores
+    
+    # BET ADDING A BUNCH OF STUFF
+    def minor_patch_victory_road(self):
+        address_bits = [
+            # victory road
+            [0xD7EE, 0],
+            [0xD7EE, 7],
+            [0xD813, 0],
+            [0xD813, 6],
+            [0xD869, 7],
+        ]
+        for ab in address_bits:
+            event_value = ram_map.mem_val(self.game, ab[0])
+            ram_map.write_mem(self.game, ab[0], ram_map.set_bit(event_value, ab[1]))
+    
+    def update_last_10_map_ids(self):
+        current_modified_map_id = ram_map.mem_val(self.game, 0xD35E) + 1
+        # check if current_modified_map_id is in last_10_map_ids
+        if current_modified_map_id == self.last_10_map_ids[0][0]:
+            return
+        else:
+            # if self.last_10_map_ids[0][0] != 0:
+            #     print(f'map changed from {MAP_ID_REF[self.last_10_map_ids[0][0] - 1]} to {MAP_ID_REF[current_modified_map_id - 1]} at step {self.step_count}')
+            self.last_10_map_ids = np.roll(self.last_10_map_ids, 1, axis=0)
+            self.last_10_map_ids[0] = [current_modified_map_id, self.step_count]
+            map_id = current_modified_map_id - 1
+            if map_id in [0x6C, 0xC2, 0xC6, 0x22]:
+                self.minor_patch_victory_road()
+            # elif map_id == 0x09:
+            if map_id not in [0xF5, 0xF6, 0xF7, 0x71, 0x78]:
+                if self.last_10_map_ids[1][0] - 1 in [0xF5, 0xF6, 0xF7, 0x71, 0x78]:
+                    # lost in elite 4
+                    self.elite_4_lost = True
+                    self.elite_4_started_step = None
+            if map_id == 0xF5:
+                # elite four first room
+                # reset elite 4 lost flag
+                if self.elite_4_lost:
+                    self.elite_4_lost = False
+                if self.elite_4_started_step is None:
+                    self.elite_4_started_step = self.step_count
+    
+    def get_event_rewarded_by_address(self, address, bit):
+        # read from rewarded_events_string
+        event_flags_start = 0xD747
+        event_pos = address - event_flags_start
+        # bit is reversed
+        # string_pos = event_pos * 8 + bit
+        string_pos = event_pos * 8 + (7 - bit)
+        return self.rewarded_events_string[string_pos] == '1'
+    
+    def init_caches(self):
+        # for cached properties
+        self._all_events_string = ''
+        self._battle_type = None
+        self._cur_seen_map = None
+        self._minimap_warp_obs = None
+        self._is_warping = None
+        self._items_in_bag = None
+        self._minimap_obs = None
+        self._minimap_sprite = None
+        self._bottom_left_screen_tiles = None
+        self._num_mon_in_box = None
+    
+    def update_cut_badge(self):
+        if not self._cut_badge:
+            # print(f"Attempting to read bit from addr: {RAM.wObtainedBadges.value}, which is type: {type(RAM.wObtainedBadges.value)}")
+            self._cut_badge = ram_map.read_bit(self.game, RAM.wObtainedBadges.value, 1) == 1
+
+    def update_surf_badge(self):
+        if not self._cut_badge:
+            return
+        if not self._surf_badge:
+            self._surf_badge = ram_map.read_bit(self.game, RAM.wObtainedBadges.value, 4) == 1   
+
+    def update_last_10_coords(self):
+        current_coord = np.array([ram_map.mem_val(self.game, 0xD362), ram_map.mem_val(self.game, 0xD361)])
+        # check if current_coord is in last_10_coords
+        if (current_coord == self.last_10_coords[0]).all():
+            return
+        else:
+            self.last_10_coords = np.roll(self.last_10_coords, 1, axis=0)
+            self.last_10_coords[0] = current_coord
+    
+    @property
+    def can_use_surf(self):
+        if not self._can_use_surf:
+            if self._surf_badge:
+                if not self._have_hm03:
+                    self._have_hm03 = 0xC6 in self.get_items_in_bag()
+                if self._have_hm03:
+                    self._can_use_surf = True
+        return self._can_use_surf
+    
+    @property
+    def can_use_cut(self):
+        # return ram_map.mem_val(self.game, 0xD2E2) == 1
+        # check badge, store last badge count, if changed, check if can use cut, bit 1, save permanently
+        if not self._can_use_cut:
+            if self._cut_badge:
+                if not self._have_hm01:
+                    self._have_hm01 = 0xc4 in self.get_items_in_bag()
+                if self._have_hm01:
+                    self._can_use_cut = True
+            # self._can_use_cut = self._cut_badge is True and 0xc4 in self.get_items_in_bag()
+        return self._can_use_cut
+    
+    @property
+    def have_silph_scope(self):
+        if self.can_use_cut and not self._have_silph_scope:
+            self._have_silph_scope = 0x48 in self.get_items_in_bag()
+        return self._have_silph_scope
+    
+    @property
+    def can_use_flute(self):
+        if self.can_use_cut and not self._have_pokeflute:
+            self._have_pokeflute = 0x49 in self.get_items_in_bag()
+        return self._have_pokeflute
+    
+    def get_base_event_flags(self):
+        # event patches
+        # 1. triggered EVENT_FOUND_ROCKET_HIDEOUT 
+        # event_value = ram_map.mem_val(self.game, 0xD77E)  # bit 1
+        # ram_map.write_mem(self.game, 0xD77E, ram_map.set_bit(event_value, 1))
+        # 2. triggered EVENT_GOT_TM13 , fresh_water trade
+        event_value = ram_map.mem_val(self.game, 0xD778)  # bit 4
+        ram_map.write_mem(self.game, 0xD778, ram_map.set_bit(event_value, 4))
+        # address_bits = [
+        #     # seafoam islands
+        #     [0xD7E8, 6],
+        #     [0xD7E8, 7],
+        #     [0xD87F, 0],
+        #     [0xD87F, 1],
+        #     [0xD880, 0],
+        #     [0xD880, 1],
+        #     [0xD881, 0],
+        #     [0xD881, 1],
+        #     # victory road
+        #     [0xD7EE, 0],
+        #     [0xD7EE, 7],
+        #     [0xD813, 0],
+        #     [0xD813, 6],
+        #     [0xD869, 7],
+        # ]
+        # for ab in address_bits:
+        #     event_value = ram_map.mem_val(self.game, ab[0])
+        #     ram_map.write_mem(self.game, ab[0], ram_map.set_bit(event_value, ab[1]))
+
+        n_ignored_events = 0
+        for event_id in IGNORED_EVENT_IDS:
+            if self.all_events_string[event_id] == '1':
+                n_ignored_events += 1
+        return max(
+            self.all_events_string.count('1')
+            - n_ignored_events,
+        0,
+    )
+    
+    def get_all_events_reward(self):
+        if self.all_events_string != self.past_events_string:
+            first_i = -1
+            for i in range(len(self.all_events_string)):
+                if self.all_events_string[i] == '1' and self.rewarded_events_string[i] == '0' and i not in IGNORED_EVENT_IDS:
+                    self.rewarded_events_string = self.rewarded_events_string[:i] + '1' + self.rewarded_events_string[i+1:]
+                    if first_i == -1:
+                        first_i = i
+            if first_i != -1:
+                # update past event ids
+                self.last_10_event_ids = np.roll(self.last_10_event_ids, 1, axis=0)
+                self.last_10_event_ids[0] = [first_i, self.time]
+        return self.rewarded_events_string.count('1') - self.base_event_flags
+            # # elite 4 stage
+            # elite_four_event_addr_bits = [
+            #     [0xD863, 0],  # EVENT START
+            #     [0xD863, 1],  # LORELEIS
+            #     [0xD863, 6],  # LORELEIS AUTO WALK
+            #     [0xD864, 1],  # BRUNOS
+            #     [0xD864, 6],  # BRUNOS AUTO WALK
+            #     [0xD865, 1],  # AGATHAS
+            #     [0xD865, 6],  # AGATHAS AUTO WALK
+            #     [0xD866, 1],  # LANCES
+            #     [0xD866, 6],  # LANCES AUTO WALK
+            # ]
+            # ignored_elite_four_events = 0
+            # for ab in elite_four_event_addr_bits:
+            #     if self.get_event_rewarded_by_address(ab[0], ab[1]):
+            #         ignored_elite_four_events += 1
+            # return self.rewarded_events_string.count('1') - self.base_event_flags - ignored_elite_four_events
+    
+    def calculate_event_rewards(self, events_dict, base_reward, reward_increment, reward_multiplier):
+        """
+        Calculate total rewards for events in a dictionary.
+
+        :param events_dict: Dictionary containing event completion status with associated points.
+        :param base_reward: The starting reward for the first event.
+        :param reward_increment: How much to increase the reward for each subsequent event.
+        :param reward_multiplier: Multiplier to adjust rewards' significance.
+        :return: Total reward calculated for all events.
+        """
+        total_reward = 0
+        current_reward = base_reward
+        assert isinstance(events_dict, dict), f"Expected dict, got {type(events_dict)}\nvariable={events_dict}"
+
+        for event, points in events_dict.items():
+            if points > 0:  # Assuming positive points indicate completion or achievement
+                total_reward += current_reward * points * reward_multiplier
+                current_reward += reward_increment
+        return total_reward
+    
+    def calculate_event_rewards_detailed(self, events, base_reward, reward_increment, reward_multiplier):
+        # This function calculates rewards for each event and returns them as a dictionary
+        # Example return format:
+        # {'event1': 10, 'event2': 11, 'event3': 12, ...}
+        detailed_rewards = {}
+        for event_name, event_value in events.items():
+            if event_value > 0:
+                detailed_rewards[event_name] = base_reward + (event_value * reward_increment * reward_multiplier)
+            else:
+                detailed_rewards[event_name] = (event_value * reward_increment * reward_multiplier)
+        return detailed_rewards
 
     def reset(self, seed=None, options=None, max_episode_steps=20480, reward_scale=4.0):
         """Resets the game. Seeding is NOT supported"""
+        # BET ADDED
+        self.init_caches()
+        assert len(self.all_events_string) == 2552, f'len(self.all_events_string): {len(self.all_events_string)}'
+        self.rewarded_events_string = '0' * 2552
+        self.base_event_flags = self.get_base_event_flags()
+        
         if self.reset_count == 0:
             load_pyboy_state(self.game, self.load_first_state())
 
@@ -692,6 +1313,23 @@ class Environment(Base):
         self.total_reward = 0
         self.rewarded_coords = set()
         self.museum_punishment = deque(maxlen=10)
+        self.rewarded_distances = {} 
+        
+        # BET ADDED A BUNCH
+        self._cut_badge = False
+        self._have_hm01 = False
+        self._can_use_cut = False
+        self._surf_badge = False
+        self._have_hm03 = False
+        self._can_use_surf = False
+        self._have_pokeflute = False
+        self._have_silph_scope = False
+        self.update_last_10_map_ids()
+        self.update_last_10_coords()
+        self.update_seen_map_dict()
+
+        self.used_cut_coords_dict = {}
+     
 
         return self.render(), {}
 
@@ -706,12 +1344,32 @@ class Environment(Base):
         r, c, map_n = ram_map.position(self.game)
         self.seen_coords.add((r, c, map_n))
         
-        # BET ADDED TREE REWARDS
-        glob_r, glob_c = game_map.local_to_global(r, c, map_n)
-        if self.cut:
-            tree_distance_reward = self.compute_tree_reward((glob_r, glob_c), TREE_POSITIONS_GRID_GLOBAL, map_n)
-        else:
-            tree_distance_reward = 0
+        # Call nimixx api
+        self.api.process_game_states() 
+        current_bag_items = self.api.items.get_bag_item_ids()
+        self.update_cut_badge()
+        self.update_surf_badge()
+        self.update_last_10_map_ids()
+        self.update_last_10_coords()
+        self.update_seen_map_dict()
+        
+        # print(f'\ngame states: {self.api.process_game_states()},\n bag_items: {current_bag_items},\n {self.update_pokedex()}\n')    
+
+        if 'Lemonade' in current_bag_items:
+            self.has_lemonade_in_bag = True
+            self.has_lemonade_in_bag_reward = 20
+        if 'Silph Scope' in current_bag_items:
+            self.has_silph_scope_in_bag = True
+            self.has_silph_scope_in_bag_reward = 20
+        if 'Lift Key' in current_bag_items:
+            self.has_lift_key_in_bag = True
+            self.has_lift_key_in_bag_reward = 20
+        if 'Poke Doll' in current_bag_items:
+            self.has_pokedoll_in_bag = True
+            self.has_pokedoll_in_bag_reward = 20
+        if 'Bicycle' in current_bag_items:
+            self.has_bicycle_in_bag = True
+            self.has_bicycle_in_bag_reward = 20
         
         # BET: increase exploration after cutting at least 1 tree to encourage exploration vs cut perseveration
         exploration_reward = 0.02 * len(self.seen_coords) if self.used_cut < 1 else 0.1 * len(self.seen_coords) # 0.2 doesn't work (too high??)
@@ -767,6 +1425,12 @@ class Environment(Base):
         hm_reward = hm_count * 10
         cut_rew = self.cut * 8 # 10 works - 2 might be better, though 
         
+        # BET ADDED TREE REWARDS
+        glob_r, glob_c = game_map.local_to_global(r, c, map_n)
+
+        tree_distance_reward = self.detect_and_reward_trees((glob_r, glob_c), map_n, vision_range=5)
+        # tree_distance_reward = self.compute_tree_reward((glob_r, glob_c), TREE_POSITIONS_GRID_GLOBAL, map_n) * cut_rew
+
         # Money 
         money = ram_map.money(self.game)
         
@@ -775,16 +1439,56 @@ class Environment(Base):
         self.max_opponent_level = max(self.max_opponent_level, max_opponent_level)
         opponent_level_reward = 0.006 * self.max_opponent_level # previously disabled BET
         
-        # Event reward
+        # Event rewards
         events = ram_map.events(self.game)
         self.max_events = max(self.max_events, events)
         event_reward = self.max_events
 
         # Dojo reward
         dojo_reward = ram_map_leanke.dojo(self.game)
+        defeated_fighting_dojo = 1 * int(ram_map.read_bit(self.game, 0xD7B1, 0))
+        got_hitmonlee = 3 * int(ram_map.read_bit(self.game, 0xD7B1, 6))
+        got_hitmonchan = 3 * int(ram_map.read_bit(self.game, 0xD7B1, 7))
         
-        # Hideout reward
-        hideout_reward = ram_map_leanke.hideout(self.game)
+        # # Hideout reward
+        # hideout_reward = ram_map_leanke.hideout(self.game)
+        
+        # SilphCo rewards
+        silph_co_events_reward = self.calculate_event_rewards(
+            ram_map_leanke.monitor_silph_co_events(self.game), 
+            base_reward=10, reward_increment=2, reward_multiplier=1)
+        
+        # Dojo rewards
+        dojo_events_reward = self.calculate_event_rewards(
+            ram_map_leanke.monitor_dojo_events(self.game), 
+            base_reward=10, reward_increment=2, reward_multiplier=1)
+        
+        # Hideout rewards
+        hideout_events_reward = self.calculate_event_rewards(
+            ram_map_leanke.monitor_hideout_events(self.game),
+            base_reward=10, reward_increment=2, reward_multiplier=1)
+
+        # Poketower rewards
+        poke_tower_events_reward = self.calculate_event_rewards(
+            ram_map_leanke.monitor_poke_tower_events(self.game),
+            base_reward=10, reward_increment=2, reward_multiplier=1)
+
+        # Gym rewards
+        gym3_events_reward = self.calculate_event_rewards(
+            ram_map_leanke.monitor_gym3_events(self.game),
+            base_reward=10, reward_increment=2, reward_multiplier=1)
+        gym4_events_reward = self.calculate_event_rewards(
+            ram_map_leanke.monitor_gym4_events(self.game),
+            base_reward=10, reward_increment=2, reward_multiplier=1)
+        gym5_events_reward = self.calculate_event_rewards(
+            ram_map_leanke.monitor_gym5_events(self.game),
+            base_reward=10, reward_increment=2, reward_multiplier=1)
+        gym6_events_reward = self.calculate_event_rewards(
+            ram_map_leanke.monitor_gym6_events(self.game),
+            base_reward=10, reward_increment=2, reward_multiplier=1)
+        gym7_events_reward = self.calculate_event_rewards(
+            ram_map_leanke.monitor_gym7_events(self.game),
+            base_reward=10, reward_increment=2, reward_multiplier=1)
 
         # Cut check
         # 0xCFC6 - wTileInFrontOfPlayer
@@ -879,7 +1583,20 @@ class Environment(Base):
             + cut_tiles # reward for cutting a cut tile, e.g. a patch of grass
             + tree_distance_reward * 0.6 # 1 is too high # 0.25 # 0.5
             + dojo_reward * 5
-            + hideout_reward * 5
+            # + hideout_reward * 5
+            + self.has_lemonade_in_bag_reward
+            + self.has_silph_scope_in_bag_reward
+            + self.has_lift_key_in_bag_reward
+            + self.has_pokedoll_in_bag_reward
+            + self.has_bicycle_in_bag_reward
+            + (dojo_events_reward + silph_co_events_reward + 
+               hideout_events_reward + poke_tower_events_reward + 
+               gym3_events_reward + gym4_events_reward + 
+               gym5_events_reward + gym6_events_reward + 
+               gym7_events_reward)
+            + (gym3_events_reward + gym4_events_reward +
+               gym5_events_reward + gym6_events_reward +
+               gym7_events_reward)
         )
 
         # Subtract previous reward
@@ -904,6 +1621,7 @@ class Environment(Base):
         if done or self.time % 10000 == 0:   
             levels = [self.game.get_memory_value(a) for a in [0xD18C, 0xD1B8, 0xD1E4, 0xD210, 0xD23C, 0xD268]]       
             info = {
+                "pokemon_exploration_map": self.counts_map, # self.explore_map, #  self.counts_map, 
                 "stats": {
                     "step": self.time,
                     "x": c,
@@ -946,7 +1664,7 @@ class Environment(Base):
                     "rubbed_captains_back": int(ram_map.read_bit(self.game, 0xD803, 1)),
                     # "taught_cut": int(self.check_if_party_has_cut()),
                     # "cut_coords": sum(self.cut_coords.values()),
-                    'pcount': int(self.game.get_memory_value(0xD163)), 
+                    'pcount': int(ram_map.mem_val(self.game, 0xD163)), 
                     # 'visited_pokecenterr': self.get_visited_pokecenter_reward(),
                     # 'rewards': int(self.total_reward) if self.total_reward is not None else 0,
                     "maps_explored": len(self.seen_maps),
@@ -980,6 +1698,9 @@ class Environment(Base):
                     'start_menu': start_menu,
                     'used_cut': self.used_cut,
                     'state_loaded_instead_of_resetting_in_game': self.state_loaded_instead_of_resetting_in_game,
+                    'defeated_fighting_dojo': defeated_fighting_dojo,
+                    'got_hitmonlee': got_hitmonlee,
+                    'got_hitmonchan': got_hitmonchan,
                 },
                 "reward": {
                     "delta": reward,
@@ -1001,10 +1722,91 @@ class Environment(Base):
                     "used_cut_reward": cut_rew,
                     # "used_cut_on_tree": used_cut_on_tree_rew,
                     "tree_distance_reward": tree_distance_reward,
-                    "dojo_reward": dojo_reward,
-                    "hideout_reward": hideout_reward,
+                    "dojo_reward_old": dojo_reward,
+                    # "hideout_reward": hideout_reward,
+                    "has_lemonade_in_bag_reward": self.has_lemonade_in_bag_reward,
+                    "has_silph_scope_in_bag_reward": self.has_silph_scope_in_bag_reward,
+                    "has_lift_key_in_bag_reward": self.has_lift_key_in_bag_reward,
+                    "has_pokedoll_in_bag_reward": self.has_pokedoll_in_bag_reward,
+                    "has_bicycle_in_bag_reward": self.has_bicycle_in_bag_reward,
                 },
-                "pokemon_exploration_map": self.counts_map, # self.explore_map, #  self.counts_map, 
+                "detailed_rewards_silph_co": {
+                    **self.calculate_event_rewards_detailed(
+                        ram_map_leanke.monitor_silph_co_events(self.game), 
+                        base_reward=10, reward_increment=2, reward_multiplier=1),
+                },
+                "detailed_rewards_dojo": {
+                    **self.calculate_event_rewards_detailed(
+                        ram_map_leanke.monitor_dojo_events(self.game), 
+                        base_reward=10, reward_increment=2, reward_multiplier=1),
+                },
+                "detailed_rewards_hideout": {
+                    **self.calculate_event_rewards_detailed(
+                        ram_map_leanke.monitor_hideout_events(self.game), 
+                        base_reward=10, reward_increment=2, reward_multiplier=1),
+                },
+                "detailed_rewards_poke_tower": {
+                    **self.calculate_event_rewards_detailed(
+                        ram_map_leanke.monitor_poke_tower_events(self.game), 
+                        base_reward=10, reward_increment=2, reward_multiplier=1),
+                },
+                "detailed_rewards_gyms": {
+                    "gym_3_detailed_rewards": {
+                    **self.calculate_event_rewards_detailed(
+                        ram_map_leanke.monitor_gym3_events(self.game), 
+                        base_reward=10, reward_increment=2, reward_multiplier=1), 
+                },
+                    "gym_4_detailed_rewards": {
+                    **self.calculate_event_rewards_detailed(
+                        ram_map_leanke.monitor_gym4_events(self.game), 
+                        base_reward=10, reward_increment=2, reward_multiplier=1),
+                },
+                    "gym_5_detailed_rewards": {
+                    **self.calculate_event_rewards_detailed(
+                        ram_map_leanke.monitor_gym5_events(self.game), 
+                        base_reward=10, reward_increment=2, reward_multiplier=1),
+                },
+                    "gym_6_detailed_rewards": {
+                    **self.calculate_event_rewards_detailed(
+                        ram_map_leanke.monitor_gym6_events(self.game), 
+                        base_reward=10, reward_increment=2, reward_multiplier=1),
+                },
+                    "gym_7_detailed_rewards": { 
+                    **self.calculate_event_rewards_detailed(
+                        ram_map_leanke.monitor_gym7_events(self.game), 
+                        base_reward=10, reward_increment=2, reward_multiplier=1),
+                },
+                },
+                "silph_co_events_aggregate": {
+                    **ram_map_leanke.monitor_silph_co_events(self.game),
+                },
+                "dojo_events_aggregate": {
+                    **ram_map_leanke.monitor_dojo_events(self.game),  
+                },
+                "hideout_events_aggregate": {
+                    **ram_map_leanke.monitor_hideout_events(self.game),
+                },
+                "poke_tower_events_aggregate": {
+                    **ram_map_leanke.monitor_poke_tower_events(self.game),
+                },
+                "gym_events": {
+                        "gym_3_events": { 
+                    **ram_map_leanke.monitor_gym3_events(self.game),
+                    }, 
+                        "gym_4_events": {  
+                    **ram_map_leanke.monitor_gym4_events(self.game),  
+                    }, 
+                        "gym_5_events": {  
+                    **ram_map_leanke.monitor_gym5_events(self.game),
+                    },  
+                        "gym_6_events": {  
+                    **ram_map_leanke.monitor_gym6_events(self.game), 
+                    }, 
+                        "gym_7_events": {  
+                    **ram_map_leanke.monitor_gym7_events(self.game), 
+                    },
+                },
+                # "pokemon_exploration_map": self.counts_map, # self.explore_map, #  self.counts_map, 
             }
         
         return self.render(), reward, done, done, info
