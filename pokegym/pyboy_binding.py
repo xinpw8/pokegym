@@ -3,7 +3,8 @@ from io import BytesIO
 
 from pyboy import PyBoy
 from pyboy.utils import WindowEvent
-
+from pokegym import ram_map
+from pokegym.ram_addresses import RamAddress as RAM
 
 class Down:
     PRESS = WindowEvent.PRESS_ARROW_DOWN
@@ -40,11 +41,12 @@ class Select:
 # TODO: Add start button to actions when we need it
 ACTIONS = (Down, Left, Right, Up, A, B, Start, Select)
 
+
 def make_env(gb_path, headless=True, quiet=False, **kwargs):
     gb_path='pokemon_red.gb'
     game = PyBoy(
         gb_path,
-        debugging=False,
+        debugging=True,
         window_type='headless' if headless else 'SDL2',
         hide_window=quiet,
         **kwargs,
@@ -56,6 +58,7 @@ def make_env(gb_path, headless=True, quiet=False, **kwargs):
         game.set_emulation_speed(6)
 
     return game, screen
+
 
 def open_state_file(path):
     '''Load state file with BytesIO so we can cache it'''
@@ -72,6 +75,11 @@ def load_pyboy_state(pyboy, state):
 def run_action_on_emulator(pyboy, screen, action,
         headless=True, fast_video=True, frame_skip=24):
     '''Sends actions to PyBoy'''
+    if not ram_map.read_ram_bit(pyboy, RAM.wd730, 6):
+        # if not instant text speed, then set it to instant
+        txt_value = ram_map.read_ram_m(pyboy, RAM.wd730)
+        ram_map.write_mem(pyboy, RAM.wd730.value, ram_map.set_bit(txt_value, 6))
+        
     press, release = action.PRESS, action.RELEASE
     pyboy.send_input(press)
 
