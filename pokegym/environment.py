@@ -34,8 +34,6 @@ import subprocess
 import multiprocessing
 import time
 import random
-from multiprocessing import Manager
-from pokegym import data
 
 from pokegym.constants import *
 from pokegym.bin.ram_reader.red_ram_api import *
@@ -58,6 +56,7 @@ if str(pufferlib_dir) not in sys.path:
 import dill as pickle
 import datetime
 import dill
+import re
 
 
 CUT_GRASS_SEQ = deque([(0x52, 255, 1, 0, 1, 1), (0x52, 255, 1, 0, 1, 1), (0x52, 1, 1, 0, 1, 1)])
@@ -179,10 +178,11 @@ class Base:
     shared_length = multiprocessing.Value('i', 0)  # 'i' for integer
     lock = multiprocessing.Lock()  # Lock to synchronize access
     
-    # Initialize a Manager for shared BytesIO object
+    # Initialize a Manager for shared dict for completion % tracking across all envs
     manager = Manager()
-    shared_bytes_io_data = manager.list([b''])  # Holds serialized BytesIO data
-    
+    # shared_bytes_io_data = manager.list([b''])  # Holds serialized BytesIO data
+    shared_data = manager.dict()
+
     def __init__(
         self,
         rom_path="pokemon_red.gb",
@@ -190,6 +190,7 @@ class Base:
         headless=True,
         save_video=False,
         quiet=False,
+        shared_data=shared_data,
         **kwargs,
     ):
         # Increment counter atomically to get unique sequential identifier
@@ -197,6 +198,9 @@ class Base:
             env_id = Base.counter.value
             Base.counter.value += 1
             
+        print(f'env_id {env_id} created.')
+            
+        self.shared_data = shared_data
         self.state_file = get_random_state()
         self.randstate = os.path.join(STATE_PATH, self.state_file)
         """Creates a PokemonRed environment"""
@@ -222,6 +226,11 @@ class Base:
         self.exp_path = Path(f'experiments/{str(exp_name)}')
         self.env_id = env_id
         self.s_path = Path(f'{str(self.exp_path)}/sessions/{str(self.env_id)}')
+        self.s_path.mkdir(parents=True, exist_ok=True)
+        
+        self.save_state_dir = self.s_path / "save_states"
+        self.save_state_dir.mkdir(exist_ok=True)
+        
         self.video_path = Path(f'./videos')
         self.video_path.mkdir(parents=True, exist_ok=True)
         # self.csv_path = Path(f'./csv')
@@ -283,7 +292,8 @@ class Base:
         self.gym_info = GYM_INFO
         self.hideout_seen_coords = {(16, 12, 201), (17, 9, 201), (24, 19, 201), (15, 12, 201), (23, 13, 201), (18, 10, 201), (22, 15, 201), (25, 19, 201), (20, 19, 201), (14, 12, 201), (22, 13, 201), (25, 15, 201), (21, 19, 201), (22, 19, 201), (13, 11, 201), (16, 9, 201), (25, 14, 201), (13, 13, 201), (25, 18, 201), (16, 11, 201), (23, 19, 201), (18, 9, 201), (25, 16, 201), (18, 11, 201), (22, 14, 201), (19, 19, 201), (18, 19, 202), (25, 13, 201), (13, 10, 201), (24, 13, 201), (13, 12, 201), (25, 17, 201), (16, 10, 201), (13, 14, 201)}
         self.cut_coords = {}
-        self.cut_tiles = 0   
+        self.cut_tiles = 0
+        self.completed_milestones = 0 # what is the data type?
         
         # BET ADDED INITIALIZATION OF ALL REWARDS INSTANTIATIONS
         self.event_reward = 0
@@ -352,7 +362,19 @@ class Base:
         self.step_threshold = 20480
         self.recent_frames = []
         self.agent_stats = {}
-    
+        
+        self.used_cut_reward = 0
+
+        # Milestone completion variables (adjust as desired)
+        self.milestone_keys = ["badge_1", "mt_moon_completion", "badge_2", 
+                       "bill_completion", "rubbed_captains_back", 
+                       "taught_cut", "used_cut_on_good_tree"]
+        self.milestone_threshold_values = [0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3] # len == len(self.milestone_threshold_dict)
+        self.milestone_threshold_dict = ({key: value} for key, value in zip(self.milestone_keys, self.milestone_threshold_values))
+        self.overall_progress = {}
+        self.actions_required = {}
+        self.selected_files = {}
+
     
     def save_screenshot(self, event, map_n):
         self.screenshot_counter += 1
@@ -599,6 +621,7 @@ class Environment(Base):
         save_video=False,
         quiet=False,
         verbose=False,
+        shared_data=shared_data,
         **kwargs,
     ):
         super().__init__(rom_path, state_path, headless, save_video, quiet, **kwargs)
@@ -1622,7 +1645,7 @@ class Environment(Base):
         self.hm_reward = hm_count * 10
 
     def get_cut_reward(self):
-        self.cut_reward = self.cut * 8  # 10 works - 2 might be better, though
+        self.cut_reward = self.cut * 10 # 8  # 10 works - 2 might be better, though
 
     def get_tree_distance_reward(self, r, c, map_n):
         glob_r, glob_c = game_map.local_to_global(r, c, map_n) 
@@ -1759,7 +1782,7 @@ class Environment(Base):
                     )
                 )
                 if tuple(list(self.cut_state)[1:]) in CUT_SEQ:
-                    self.cut_coords[coords] = 10 # 10
+                    self.cut_coords[coords] = 5 # 10 reward value for cutting a tree successfully
                     self.cut_tiles[self.cut_state[-1][0]] = 1
                 elif self.cut_state == CUT_GRASS_SEQ:
                     self.cut_coords[coords] = 0.001
@@ -1781,13 +1804,10 @@ class Environment(Base):
 
     def BET_cut_check(self):
         # Cut check 2 - BET ADDED: used cut on tree
-        r, c, map_n = ram_map.position(self.game)
+        # r, c, map_n = ram_map.position(self.game)
         if ram_map.used_cut(self.game) == 61:
             ram_map.write_mem(self.game, 0xCD4D, 00) # address, byte to write
-            if (map_n, r, c) in self.used_cut_coords_set:
-                pass
-            else:
-                self.used_cut += 1
+            self.used_cut += 1
 
     def celadon_gym_4_tree_reward(self, action):
         (r, c, map_n) = ram_map.position(self.game)
@@ -1890,8 +1910,8 @@ class Environment(Base):
     def get_respawn_reward(self):
         center = self.game.get_memory_value(0xD719)
         self.respawn.add(center)
-        self.len_respawn_reward = len(self.respawn) * 5
-        return self.len_respawn_reward
+        self.len_respawn_reward = len(self.respawn)
+        return self.len_respawn_reward # * 5
     
     # For testing
     def compute_and_print_rewards(event_reward, bill_capt_rew, seen_pokemon_reward, caught_pokemon_reward, moves_obtained_reward, bill_reward, hm_reward, level_reward, death_reward, badges_reward, healing_reward, exploration_reward, cut_rew, that_guy_reward, cut_coords_reward, cut_tiles_reward, tree_distance_reward, dojo_reward, hideout_reward, lemonade_in_bag_reward, silph_scope_in_bag_reward, lift_key_in_bag_reward, pokedoll_in_bag_reward, bicycle_in_bag_reward, special_location_rewards, can_reward, reward_scale):
@@ -1955,6 +1975,22 @@ class Environment(Base):
     def reset(self, seed=None, options=None, max_episode_steps=20480, reward_scale=4.0):
         """Resets the game. Seeding is NOT supported"""
         # BET ADDED
+        # Logic for loading envs based off % milestone achievement
+        # Decision to load a state based on "files_to_load"
+        # Only 1 env should execute the below:
+        if self.env_id == 0:
+            # Updates shared dict (self.shared_data) with milestones dict for each env
+            self.assess_milestone_completion_percentage()
+            # Returns average completion percentage for each milestone across all envs
+            self.overall_progress = self.compute_overall_progress(self.shared_data)
+            # Compares self.overall_progress and self.milestone_threshold dicts
+            self.actions_required = self.assess_progress_for_action(self.overall_progress, self.milestone_threshold_dict)
+            # Assesses states for loading using saved state files/dirs
+            self.sort_and_assess_envs_for_loading(self.shared_data, self.actions_required, 96)
+                    
+        # Only loads a state if env was determined to need loading
+        self.load_state_from_tuple()
+                
         self.init_caches()
         assert len(self.all_events_string) == 2552, f'len(self.all_events_string): {len(self.all_events_string)}'
         self.rewarded_events_string = '0' * 2552
@@ -2006,6 +2042,7 @@ class Environment(Base):
         self.seen_pokemon = np.zeros(152, dtype=np.uint8)
         self.caught_pokemon = np.zeros(152, dtype=np.uint8)
         self.moves_obtained = np.zeros(0xA5, dtype=np.uint8)
+        self.town = 1
         
         self.seen_coords_no_reward = set()
         self._all_events_string = ''
@@ -2035,7 +2072,7 @@ class Environment(Base):
         self.total_reward = 0
         self.rewarded_coords = set()
         self.museum_punishment = deque(maxlen=10)
-        self.rewarded_distances = {} 
+        self.rewarded_distances = {}
         
         # BET ADDED A BUNCH
         self._cut_badge = False
@@ -2060,7 +2097,10 @@ class Environment(Base):
         self.expl = 0
         self.celadon_tree_reward = 0
         self.celadon_tree_reward_counter = 0
+        self.exploration_reward = 0
 
+        # Share data for milestone completion % assessment
+        self.assess_milestone_completion_percentage()
     
         return self.render(), {}
 
@@ -2071,11 +2111,11 @@ class Environment(Base):
         if self.save_video:
             self.add_video_frame()
             
-        # if self.time % 10 == 0:
-        #     self.save_all_states_v3()
+        if self.time % 10 == 0:
+            self.save_all_states_v3()
         
-        # if self.time % 15 == 0:
-        #     self.load_state_from_directory('/puffertank/0.7/pufferlib/pokegym/pokegym/save_states')
+        if self.time % 15 == 0:
+            self.load_state_from_directory_v2()
             
         # Get local coordinate position and map_n
         r, c, map_n = ram_map.position(self.game)
@@ -2125,6 +2165,7 @@ class Environment(Base):
         self.get_lock_1_use_reward()
 
         # Cut check
+        self.BET_cut_check()
         self.cut_check(action)
 
         # Other functions
@@ -2137,6 +2178,10 @@ class Environment(Base):
         self.calculate_cut_coords_and_tiles_rewards()
         self.calculate_seen_caught_pokemon_moves()
 
+        # Share data for milestone completion % assessment
+        self.assess_milestone_completion_percentage()
+        
+        
         # Final reward calculation
         self.calculate_reward()
         reward, self.last_reward = self.subtract_previous_reward_v1(self.last_reward, self.reward)
@@ -2399,6 +2444,7 @@ class Environment(Base):
             + self.len_respawn_reward
             + self.lock_1_use_reward
             + self.celadon_tree_reward
+            + self.used_cut_reward
         )
     
         # special_location_reward = (self.dojo_events_reward + self.silph_co_events_reward + 
@@ -2544,85 +2590,192 @@ class Environment(Base):
     }}
 
     def save_all_states_v3(self, is_failed=False):
-        # Assume self.save_state_dir is properly initialized elsewhere in the class
-        self.save_state_dir = Path(__file__).parent / "save_states/"
-        self.save_state_dir.mkdir(exist_ok=True)
-        
+        # Assume self.save_state_dir is properly initialized in Base class init
+        # self.save_state_dir = Path(__file__).parent / "save_states/"
+        # self.save_state_dir.mkdir(exist_ok=True)       
         # Constructing state directory path
         datetime_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        state_dir = self.save_state_dir / Path(f'level_{self.get_levels_sum()}') / f'_env_id_{self.env_id}'        
-        state_dir.mkdir(parents=True, exist_ok=True)
-        state_file_path = state_dir / f"{datetime_str}_state.pkl"
-        pyboy_state_file_path = state_dir / f"{datetime_str}_state.state"
-        
+        self.state_dir = self.save_state_dir / Path(f'event_reward_{self.event_reward}') / f'env_id_{self.env_id}'        
+        self.state_dir.mkdir(parents=True, exist_ok=True)
+        self.state_file_path = self.state_dir / f"env_id_{self.env_id}_{datetime_str}_state.pkl"
+        self.pyboy_state_file_path = self.state_dir / f"env_id_{self.env_id}_{datetime_str}_state.state" 
         # Explicitly exclude non-serializable variables
         excluded_vars = ['game', 'screen', 'api']
         state = {key: value for key, value in vars(self).items() if key not in excluded_vars}
-
         try:
-            with open(state_file_path, 'wb') as f:
+            with open(self.state_file_path, 'wb') as f:
                 dill.dump(state, f)
-            print(f"Saved state to {state_file_path}")
+            print(f"Saved state to {self.state_file_path}")
         except Exception as e:
-            print(f"Failed to save state. Error: {e}")
-            
+            print(f"Failed to save state. Error: {e}")  
         try:
-            with open(pyboy_state_file_path, 'wb') as f:
+            with open(self.pyboy_state_file_path, 'wb') as f:
                 self.game.save_state(f)
-            print(f'saved pyboy state file {pyboy_state_file_path}')
+            print(f'saved pyboy state file {self.pyboy_state_file_path}')
         except:
-            print(f'{pyboy_state_file_path} failed to save pyboy state..')
+            print(f'{self.pyboy_state_file_path} failed to save pyboy state..')
     
-    def load_state_from_directory(self, directory_path):
-        path = Path(directory_path)
-        # Find all .pkl and .state files in directory and subdirectories
-        pkl_files = list(path.rglob('*.pkl'))
-        pyboy_files = list(path.rglob('*.state'))
+    def select_best_states(self):
+        # Function to scan all folders containing .pkl .state files and order them
+        # from highest to lowest using various metrics:
+        # badge_1 completion "badge_1": float(self.badges >= 1)
+        # mt moon completion 
+        # badge_2 completion "badge_2": float(self.badges >= 2)
+        # bill completion int(ram_map.read_bit(self.game, 0xD7F2, 7))
+        # rubbed_captains_back int(ram_map.read_bit(self.game, 0xD803, 1))
+        # taught cut self.cut
+        # used cut on a good tree self.used_cut>0
+        pass
         
-        if not pkl_files or not pyboy_files:
-            print("No state files found.")
+    # Version of loading fn that sorts env saved state folders by event_reward (in this case)
+    def load_state_from_directory_v2(self):
+        # Assuming self.exp_path is correctly set to the base path
+        # For example: '/puffertank/0.7/pufferlib/experiments/ydbo1df4'
+        # Ensure the base experiments path exists
+        if not self.exp_path.exists():
+            print(f"Experiments path does not exist: {self.exp_path}")
             return
-
-        # Randomly select a .pkl file
-        selected_pkl_file = random.choice(pkl_files)
-        print(f"Loading state from {selected_pkl_file}")
-
-        # Derive the timestamp or unique identifier from the selected .pkl file
-        # This example assumes the filename format is "YYYYMMDD_HHMMSS_state.pkl"
-        unique_identifier = selected_pkl_file.stem[:-5]  # Adjust slicing based on your filename format
-        
-        # Find the corresponding .state file
-        selected_pyboy_file = None
-        for file in pyboy_files:
-            if file.stem.startswith(unique_identifier):
-                selected_pyboy_file = file
-                break
-
-        if not selected_pyboy_file:
-            print("Matching pyboy file not found.")
+        # Recursively find all .pkl files within the experiments path
+        pkl_files = list(self.exp_path.rglob('*_state.pkl'))
+        if not pkl_files:
+            print("No .pkl state files found across any sessions.")
             return
-        
-        # Load pyboy state from the matched file
+        # Extract the event_reward value and associate it with each found .pkl file
+        pkl_files_with_reward = [(file, float(re.search(r'event_reward_([0-9\.]+)', file.parent.as_posix()).group(1))) for file in pkl_files]
+        # Find the .pkl file with the highest event_reward value
+        highest_reward_file = max(pkl_files_with_reward, key=lambda x: x[1])[0]
+        # The corresponding .state file should have the same name except for the extension
+        selected_pyboy_file = highest_reward_file.with_suffix('.state')
+        print(f"Selected .pkl for loading: {highest_reward_file}")
+        print(f"Selected .state for loading: {selected_pyboy_file}")
+        # Load state from the .pkl file
         try:
-            with open(selected_pyboy_file, 'rb') as f:
-                self.game.load_state(f)
-            print(f"PyBoy state loaded from {selected_pyboy_file}")
-        except Exception as e:
-            print(f"Failed to load PyBoy state from {selected_pyboy_file}. Error: {e}")
-            return  # Exit if PyBoy state loading fails
-        
-        # Load environment state from the selected .pkl file
-        try:
-            with open(selected_pkl_file, 'rb') as f:
+            with open(highest_reward_file, 'rb') as f:
                 state = pickle.load(f)
                 for key, value in state.items():
                     setattr(self, key, value)
-            print(f"Environment state loaded successfully from {selected_pkl_file}.")
+            print("Environment state loaded successfully.")
         except Exception as e:
-            print(f"Failed to load environment state from {selected_pkl_file}. Error: {e}")
-
-        # Reset counters or any other necessary initialization post-loading
+            print(f"Failed to load environment state. Error: {e}")
+        # Load PyBoy state if the .state file exists
+        if selected_pyboy_file.exists():
+            try:
+                with open(selected_pyboy_file, 'rb') as f:
+                    self.game.load_state(f)  # Ensure this is the correct method to load your PyBoy state
+                print("PyBoy state loaded successfully.")
+            except Exception as e:
+                print(f"Failed to load PyBoy state. Error: {e}")
+        else:
+            print("Matching .state file not found.")
+        # Reset or initialize as necessary post-loading
         self.reset_count = 0
         self.step_count = 0
         self.reset_count += 1
+        
+    def load_state_from_tuple(self):
+        # Retrieve the tuple of file paths for the current environment
+        with Base.lock:
+            files_to_load = self.shared_data[self.env_id].get("files_to_load", None)
 
+        if not files_to_load:
+            print("No files specified for loading.")
+            return
+
+        if files_to_load != None:
+            # Unpack the tuple into its components
+            pickled_file_path, pyboy_state_file_path = files_to_load
+
+            print(f"Selected .pkl for loading: {pickled_file_path}")
+            print(f"Selected .state for loading: {pyboy_state_file_path}")
+            
+            # Load state from the .pkl file
+            try:
+                with open(pickled_file_path, 'rb') as f:
+                    state = pickle.load(f)
+                    for key, value in state.items():
+                        setattr(self, key, value)
+                print(f"Environment state at {pickled_file_path} loaded successfully.")
+            except Exception as e:
+                print(f"Failed to load environment state. Error: {e}")
+            
+            # Load PyBoy state if the .state file exists
+            try:
+                with open(pyboy_state_file_path, 'rb') as f:
+                    self.game.load_state(f)  # Ensure this is the correct method to load your PyBoy state
+                print(f"PyBoy state at {pyboy_state_file_path} loaded successfully.")
+            except Exception as e:
+                print(f"Failed to load PyBoy state. Error: {e}")
+
+            # Reset or initialize as necessary post-loading
+            self.reset_count = 0
+            self.step_count = 0
+            self.reset_count += 1
+
+    def assess_milestone_completion_percentage(self):
+        milestones = {
+            "badge_1": (float(self.badges >= 1), self.current_time),
+            "mt_moon_completion": (float('mt_moon_key' in self.completed_milestones), self.current_time),
+            "badge_2": (float(self.badges >= 2), self.current_time),
+            "bill_completion": (float(ram_map.read_bit(self.game, 0xD7F2, 7)), self.current_time),
+            "rubbed_captains_back": (float(ram_map.read_bit(self.game, 0xD803, 1)), self.current_time),
+            "taught_cut": (float(self.cut), self.current_time),
+            "used_cut_on_good_tree": (float(self.used_cut > 0), self.current_time),
+        }
+        with Base.lock:
+            self.shared_data[self.env_id] = milestones
+        
+    # One env computes each milestone completion % over all envs
+    def compute_overall_progress(self, shared_data):
+        milestone_keys = ["badge_1", "mt_moon_completion", "badge_2", 
+                        "bill_completion", "rubbed_captains_back", 
+                        "taught_cut", "used_cut_on_good_tree"]
+        overall_progress = {key: 0 for key in milestone_keys}  # Initialize dict  
+        for key in milestone_keys:
+            # Calculate average completion percentage for each milestone
+            overall_progress[key] = sum(data.get(key, (0, 0))[0] for data in shared_data.values()) / len(shared_data)
+        return overall_progress
+    
+    def assess_progress_for_action(self, overall_progress, milestone_threshold_dict):
+        actions_required = {}  # Dict to hold milestones that meet the threshold        
+        for key, threshold in milestone_threshold_dict.items():
+            if overall_progress.get(key, 0) >= threshold:
+                # Calculate percentage of envs to act upon based on completion
+                actions_required[key] = 1 - overall_progress[key]        
+        return actions_required
+    
+    # Call like assess_states_for_loading(shared_data, pkl_files, 
+    # (assess_progress_for_action(compute_overall_progress(shared_data)), milestone_threshold_dict))
+    def sort_and_assess_envs_for_loading(self, shared_data, actions_required, num_envs):
+        worst_envs, best_env_files = [], []
+        
+        # Assuming the shared_data structure now includes a 'files_to_load' entry for best environments
+        # that contains tuples of (pkl_file_path, state_file_path)
+        for milestone, action_percentage in actions_required.items():
+            # Filter and sort environments based on completion time
+            envs_completion_times = [(env_id, data[milestone][1], data.get("files_to_load", None)) 
+                                    for env_id, data in shared_data.items() 
+                                    if milestone in data]
+            sorted_envs = sorted(envs_completion_times, key=lambda x: x[1])
+            
+            # Calculate the split index based on action percentage
+            split_index = int(len(sorted_envs) * (1 - action_percentage))
+            
+            # Best environments - we're interested in their state files for loading
+            for _, _, files_to_load in sorted_envs[:split_index]:
+                if files_to_load is not None:
+                    best_env_files.append(files_to_load)
+            
+            # Worst environments - these need new states loaded into them
+            worst_envs.extend([env_id for env_id, _, _ in sorted_envs[split_index:]])
+        
+        # Deduplicate while preserving order for worst environments
+        worst_envs = list(dict.fromkeys(worst_envs))
+        
+        # Randomly assign state files from the best environments to the worst environments
+        for env_id in worst_envs:
+            if best_env_files:  # Check if there are any best environment files available
+                selected_files = random.choice(best_env_files)  # Randomly select a tuple of files
+                with Base.lock:
+                    self.shared_data[env_id]["files_to_load"] = selected_files
+            else:
+                print("No best environment files available for loading.")
