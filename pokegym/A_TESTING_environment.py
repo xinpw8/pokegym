@@ -113,7 +113,7 @@ def play():
         verbose=True,
     )
 
-    env = StreamWrapper(env, stream_metadata={"user": "localtesty |BET|\n"})
+    env = StreamWrapper(env, stream_metadata={"user": "BOX5|BET|\n"})
 
     env.reset()
     env.game.set_emulation_speed(0)
