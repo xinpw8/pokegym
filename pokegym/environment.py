@@ -45,7 +45,8 @@ from pokegym.bin.ram_reader.red_memory_menus import *
 from pokegym.bin.ram_reader.red_memory_player import *
 from pokegym.bin.ram_reader.red_ram_debug import *
 from enum import IntEnum
-from multiprocessing import Manager
+import multiprocessing
+from multiprocessing import Manager, Lock
 from .ram_addresses import RamAddress as RAM
 from stream_agent_wrapper import StreamWrapper
 import sys
@@ -57,6 +58,8 @@ import dill as pickle
 import datetime
 import dill
 import re
+from datetime import datetime
+import json
 
 
 CUT_GRASS_SEQ = deque([(0x52, 255, 1, 0, 1, 1), (0x52, 255, 1, 0, 1, 1), (0x52, 1, 1, 0, 1, 1)])
@@ -115,7 +118,7 @@ def play():
     """Creates an environment and plays it"""
     env = Environment(
         rom_path="pokemon_red.gb",
-        state_path=EXPERIMENTAL_PATH,
+        state_path=None,
         headless=False,
         disable_input=False,
         sound=False,
@@ -123,7 +126,8 @@ def play():
         verbose=True,
     )
 
-    env = StreamWrapper(env, stream_metadata={"user": "localtesty |BET|\n"})
+    # Update pokemap visualizer text here
+    env = StreamWrapper(env, stream_metadata={"user": "boucybet |BET| test\n"})
 
     env.reset()
     env.game.set_emulation_speed(0)
@@ -169,6 +173,17 @@ def play():
 
                 # Additional game logic or information display can go here
                 print(f"new Reward: {reward}\n")
+                
+import logging
+import sys
+import threading
+
+# Initialize a Manager for shared dict for completion % tracking across all envs
+manager = Manager()
+# shared_bytes_io_data = manager.list([b''])  # Holds serialized BytesIO data
+shared_data = manager.dict()
+lock = Lock()
+
 class Base:
     # Shared counter among processes
     counter_lock = multiprocessing.Lock()
@@ -177,11 +192,7 @@ class Base:
     # Initialize a shared integer with a lock for atomic updates
     shared_length = multiprocessing.Value('i', 0)  # 'i' for integer
     lock = multiprocessing.Lock()  # Lock to synchronize access
-    
-    # Initialize a Manager for shared dict for completion % tracking across all envs
-    manager = Manager()
-    # shared_bytes_io_data = manager.list([b''])  # Holds serialized BytesIO data
-    shared_data = manager.dict()
+
 
     def __init__(
         self,
@@ -190,7 +201,6 @@ class Base:
         headless=True,
         save_video=False,
         quiet=False,
-        shared_data=shared_data,
         **kwargs,
     ):
         # Increment counter atomically to get unique sequential identifier
@@ -200,7 +210,10 @@ class Base:
             
         print(f'env_id {env_id} created.')
             
-        self.shared_data = shared_data
+        self.num_envs = 96
+        self.manager = Manager()
+        self.shared_data = self.manager.dict()
+
         self.state_file = get_random_state()
         self.randstate = os.path.join(STATE_PATH, self.state_file)
         """Creates a PokemonRed environment"""
@@ -214,25 +227,149 @@ class Base:
         self.memory_shape = 80
         self.use_screen_memory = True
         self.screenshot_counter = 0
+        self.step_threshold = 20480
+        self.rocket_hideout_maps = [199, 200, 201, 202, 203]
+        self.poketower_maps = [142, 143, 144, 145, 146, 147, 148]
+        self.silph_co_maps = [181, 207, 208, 209, 210, 211, 212, 213, 233, 234, 235, 236]
+        self.routes_9_and_10_and_rock_tunnel = [20, 21, 82, 232]
+        self.vermilion_city_gym_map = [92]
+        self.bonus_exploration_reward_maps = self.rocket_hideout_maps + self.poketower_maps + self.silph_co_maps + self.vermilion_city_gym_map
+        self.rocket_hideout_reward_shape = [5, 6, 7, 8, 10]
+        self.vermilion_city_and_gym_reward_shape = [10]
+        self.cut = 0
+        self.max_multiplier_cap = 5  # Cap for the dynamic reward multiplier
+        self.exploration_reward_cap = 2000  # Cap for the total exploration reward
+        self.initial_multiplier_value = 1  # Starting value for the multiplier
+        self.seen_coords = set() # self.seen_coords.add((r, c, map_n))
         
-        file_path = 'experiments/running_experiment.txt'
-        if not os.path.exists(file_path):
-            os.makedirs(os.path.dirname(file_path), exist_ok=True)
-            with open(file_path, 'w') as file:
-                file.write('default_exp_name')
-        # Logging initializations
-        with open("experiments/running_experiment.txt", "r") as file:
-            exp_name = file.read()
+        # BET ADDED STATE INSTANTIATIONS
+        self.past_events_string = self.all_events_string
+        self._all_events_string = ''
+        self.time = 0
+        self.special_exploration_scale = 0
+        self.elite_4_lost = False
+        self.elite_4_early_done = False
+        self.elite_4_started_step = None
+        self.pokecenter_ids = [0x01, 0x02, 0x03, 0x0F, 0x15, 0x05, 0x06, 0x04, 0x07, 0x08, 0x0A, 0x09]
+        self.has_lemonade_in_bag = False
+        self.has_fresh_water_in_bag = False
+        self.has_soda_pop_in_bag = False
+        self.has_silph_scope_in_bag = False
+        self.has_lift_key_in_bag = False
+        self.has_pokedoll_in_bag = False
+        self.has_bicycle_in_bag = False
+        self.gym_info = GYM_INFO
+        self.hideout_seen_coords = {(16, 12, 201), (17, 9, 201), (24, 19, 201), (15, 12, 201), (23, 13, 201), (18, 10, 201), (22, 15, 201), (25, 19, 201), (20, 19, 201), (14, 12, 201), (22, 13, 201), (25, 15, 201), (21, 19, 201), (22, 19, 201), (13, 11, 201), (16, 9, 201), (25, 14, 201), (13, 13, 201), (25, 18, 201), (16, 11, 201), (23, 19, 201), (18, 9, 201), (25, 16, 201), (18, 11, 201), (22, 14, 201), (19, 19, 201), (18, 19, 202), (25, 13, 201), (13, 10, 201), (24, 13, 201), (13, 12, 201), (25, 17, 201), (16, 10, 201), (13, 14, 201)}
+        self.cut_coords = {}
+        self.cut_tiles = 0
+        self.completed_milestones = []
+        self.current_time = datetime.now()
+        
+                
+        # Dynamic progress detection / rewarding
+        self.last_progress_step = 0  # Step at which the last progression was made
+        self.current_step = 0  # Current step in the training process
+        self.progression_detected = False
+        self.bonus_reward_increment = 0.02  # Initial bonus reward increment
+        self.max_bonus_reward_increment = 0.1  # Maximum bonus reward increment
+        self.bonus_reward_growth_rate = 0.01  # How much the bonus increases per step without progression
+        
+        # More dynamic rewards stuff
+        self.seen_coords_specific_maps = set()
+        self.steps_since_last_new_location = 0
+        self.recent_frames = []
+        self.agent_stats = {}
+        self.has_lemonade_in_bag_reward = 0
+        
+        
+        # file_path = 'experiments/running_experiment.txt'
+        # assert os.path.exists(file_path)
+        # if not os.path.exists(file_path):
+        #     os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        #     with open(file_path, 'w') as file:
+        #         file.write('LINE250_file_path_did_not_exist_but_assert_missed_somehow')
+        # # Logging initializations
+        # with open("experiments/running_experiment.txt", "r") as file:
+        #     exp_name = file.read()
+        
+        # new way of getting exp name created by clean_pufferl    
+        experiments_base_dir = Path('/puffertank/0.7/pufferlib/experiments')
+        print(f'environment.py: experiments_base_dir {experiments_base_dir} assigned!')
+
+        # List all subdirectories in the experiments base directory
+        experiment_dirs = [d for d in experiments_base_dir.iterdir() if d.is_dir()]
+        print(f'environment.py: subdirectories of {experiments_base_dir}: {experiment_dirs}')
+
+        # Sort directories by their creation time, latest first
+        sorted_experiment_dirs = sorted(experiment_dirs, key=os.path.getmtime, reverse=True)
+        print(f'environment.py: sorting the subdirectories...\n\nSorted by creation time, latest first: {sorted_experiment_dirs}')
+
+        # Take the most recently created directory
+        if sorted_experiment_dirs:
+            latest_experiment_dir = sorted_experiment_dirs[0]
+            print(f"Most recently created experiment directory: {latest_experiment_dir}")
+        else:
+            print("No experiment directories found.")
+            latest_experiment_dir = None
+        
+        if latest_experiment_dir:
+            # Construct the path to running_experiment.txt within the required_resources directory
+            running_experiment_file_path = latest_experiment_dir / "required_resources" / "running_experiment.txt"
+            print(f'Looking for file running_experiment.txt in {running_experiment_file_path}')
+            # Check if the file exists and read the experiment name
+            if running_experiment_file_path.exists():
+                with running_experiment_file_path.open('r') as file:
+                    exp_name = file.read().strip()
+                print(f"Experiment name read from file: {exp_name}")
+            else:
+                print("running_experiment.txt not found in the latest experiment directory.")
+                exp_name = "pokegym"
+        else:
+            exp_name = None
+
+        # END NEW WAY OF GETTING EXP NAME
+        # Get experiment name and dir
         self.exp_path = Path(f'experiments/{str(exp_name)}')
+        # Initialize env_id
         self.env_id = env_id
+        
         self.s_path = Path(f'{str(self.exp_path)}/sessions/{str(self.env_id)}')
         self.s_path.mkdir(parents=True, exist_ok=True)
         
         self.save_state_dir = self.s_path / "save_states"
         self.save_state_dir.mkdir(exist_ok=True)
         
-        self.video_path = Path(f'./videos')
-        self.video_path.mkdir(parents=True, exist_ok=True)
+        self.log_file_dir = self.s_path / "log_files"
+        self.log_file_dir.mkdir(exist_ok=True)
+        
+        # Define the path to the log file
+        self.log_file_path = self.log_file_dir / f"env_{self.env_id}.log" # Path(f'/puffertank/0.7/pufferlib/experiments/pufferlib/experiments/env_{self.env_id}.log')
+        # Ensure the log file directory exists
+        self.log_file_path.parent.mkdir(parents=True, exist_ok=True)
+            # Create the files if they do not exist
+        self.log_file_path.touch(exist_ok=True)  # Creates the file if it doesn't exist, without erasing content if it does
+        
+
+        # # Create file handler which logs even debug messages
+        # self.fh = logging.FileHandler(self.log_file_path, mode='w')
+        # self.fh.setLevel(logging.DEBUG)  # Set the file handler's level
+
+        # # Create formatter and add it to the handler
+        # self.formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        # self.fh.setFormatter(self.formatter)
+
+        # # Add the handler to the logger
+        # self.logger.addHandler(self.fh)
+        # self.logger.propagate = False
+
+        # # Example of a log message
+        # self.logger.info(f"Environment {self.env_id}'s logging is set up.")
+        
+        
+            
+        self.video_path = Path(f'./videos') if self.save_video else None
+        if self.video_path is not None:
+            self.video_path.mkdir(parents=True, exist_ok=True)
         # self.csv_path = Path(f'./csv')
         # self.csv_path.mkdir(parents=True, exist_ok=True)
         self.reset_count = 0
@@ -259,6 +396,7 @@ class Base:
             low=0, high=255, dtype=np.uint8, shape=self.obs_size
         )
         self.action_space = spaces.Discrete(len(ACTIONS))
+             
         
         # BET ADDED
         # BET ADDED TREE INSTANTIATIONS
@@ -272,28 +410,7 @@ class Base:
             'tree_coord': [(32, 35)],
             'outside_box': [((30, 31), (33, 37))]
         }
-        
-        # BET ADDED STATE INSTANTIATIONS
-        self.past_events_string = self.all_events_string
-        self._all_events_string = ''
-        self.time = 0
-        self.special_exploration_scale = 0
-        self.elite_4_lost = False
-        self.elite_4_early_done = False
-        self.elite_4_started_step = None
-        self.pokecenter_ids = [0x01, 0x02, 0x03, 0x0F, 0x15, 0x05, 0x06, 0x04, 0x07, 0x08, 0x0A, 0x09]
-        self.has_lemonade_in_bag = False
-        self.has_fresh_water_in_bag = False
-        self.has_soda_pop_in_bag = False
-        self.has_silph_scope_in_bag = False
-        self.has_lift_key_in_bag = False
-        self.has_pokedoll_in_bag = False
-        self.has_bicycle_in_bag = False
-        self.gym_info = GYM_INFO
-        self.hideout_seen_coords = {(16, 12, 201), (17, 9, 201), (24, 19, 201), (15, 12, 201), (23, 13, 201), (18, 10, 201), (22, 15, 201), (25, 19, 201), (20, 19, 201), (14, 12, 201), (22, 13, 201), (25, 15, 201), (21, 19, 201), (22, 19, 201), (13, 11, 201), (16, 9, 201), (25, 14, 201), (13, 13, 201), (25, 18, 201), (16, 11, 201), (23, 19, 201), (18, 9, 201), (25, 16, 201), (18, 11, 201), (22, 14, 201), (19, 19, 201), (18, 19, 202), (25, 13, 201), (13, 10, 201), (24, 13, 201), (13, 12, 201), (25, 17, 201), (16, 10, 201), (13, 14, 201)}
-        self.cut_coords = {}
-        self.cut_tiles = 0
-        self.completed_milestones = 0 # what is the data type?
+
         
         # BET ADDED INITIALIZATION OF ALL REWARDS INSTANTIATIONS
         self.event_reward = 0
@@ -339,15 +456,27 @@ class Base:
         self.len_respawn_reward = 0
         self.final_reward = 0
         self.reward = 0
+        self.early_map_list = [0, 1, 12, 51, 2, 54, 59, 14, 59, 60, 61]   
+        self.bill_and_ss_anne_maps = [88, 101]
+        self.cerulean_gym_map = [65]
+        self.advanced_gym_maps = [92, 134, 157, 166, 178] # Vermilion, Celadon, Fuchsia, Cinnabar, Saffron
+        self.rocket_hideout_b4f_and_lift_maps = [202, 203]
+        self.pokemon_tower_maps = [142, 143, 144, 145, 146, 147, 148]
+        self.silph_co_maps = [181, 207, 208, 209, 210, 211, 212, 213, 233, 234, 235, 236]
+        self.early_map_list = [0, 1, 12, 51, 2, 54, 59, 14, 59, 60, 61]       
         self.rocket_hideout_maps = [199, 200, 201, 202, 203]
         self.poketower_maps = [142, 143, 144, 145, 146, 147, 148]
         self.silph_co_maps = [181, 207, 208, 209, 210, 211, 212, 213, 233, 234, 235, 236]
         self.vermilion_city_gym_map = [92]
-        self.bonus_exploration_reward_maps = self.rocket_hideout_maps + self.poketower_maps + self.silph_co_maps + self.vermilion_city_gym_map
+        self.bonus_exploration_reward_maps = self.rocket_hideout_maps + self.poketower_maps + self.silph_co_maps + self.vermilion_city_gym_map + self.silph_co_maps + self.rocket_hideout_b4f_and_lift_maps + self.vermilion_city_gym_map
         
         self.rocket_hideout_reward_shape = [5, 6, 7, 8, 10]
         self.vermilion_city_and_gym_reward_shape = [10]
-        
+        self.cut = 0
+        self.max_multiplier_cap = 5  # Cap for the dynamic reward multiplier
+        self.exploration_reward_cap = 2000  # Cap for the total exploration reward
+        self.initial_multiplier_value = 1  # Starting value for the multiplier
+                
         # Dynamic progress detection / rewarding
         self.last_progress_step = 0  # Step at which the last progression was made
         self.current_step = 0  # Current step in the training process
@@ -361,7 +490,9 @@ class Base:
         self.steps_since_last_new_location = 0
         self.step_threshold = 20480
         self.recent_frames = []
-        self.agent_stats = {}
+        self.agent_stats = {} 
+        
+
         
         self.used_cut_reward = 0
 
@@ -369,13 +500,230 @@ class Base:
         self.milestone_keys = ["badge_1", "mt_moon_completion", "badge_2", 
                        "bill_completion", "rubbed_captains_back", 
                        "taught_cut", "used_cut_on_good_tree"]
-        self.milestone_threshold_values = [0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3] # len == len(self.milestone_threshold_dict)
+        self.milestone_threshold_values = [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1] # len == len(self.milestone_threshold_dict)
         self.milestone_threshold_dict = ({key: value} for key, value in zip(self.milestone_keys, self.milestone_threshold_values))
         self.overall_progress = {}
         self.actions_required = {}
         self.selected_files = {}
+        self.last_achievements = {}
+        self.current_achievements = {}
+        self.already_saved_state = set()
+        self.problematic_vars = []
 
+        ###############################################################
+        # New today BET ADDED
+        self.shared_data = shared_data
+        self.lock = lock
+        self.badges = 0  # Placeholder for badge count
+        self.cut = False  # Placeholder for cut HM status
+        self.used_cut = 0  # Placeholder for usage of cut
+        self.initialize_milestones()     
+        
+    def is_badge_1_achieved(self):
+        return float(self.badges >= 1)
+
+    def is_mt_moon_completed(self):
+        return ram_map.position(self.game)[2] == 4
+
+    def is_badge_2_achieved(self):
+        return float(self.badges >= 2)
+
+    def is_bill_completed(self):
+        return int(ram_map.read_bit(self.game, 0xD7F2, 7))
+
+    def is_captains_back_rubbed(self):
+        return int(ram_map.read_bit(self.game, 0xD803, 1))
+
+    def is_cut_taught(self):
+        return self.cut
+
+    def is_cut_used_on_good_tree(self):
+        return self.used_cut > 0
+
+    def check_map_completion(self, map_id):
+        return ram_map.position(self.game)[2] == map_id
     
+
+    def initialize_milestones(self):
+        self.milestones = {
+            "badge_1": self.is_badge_1_achieved(),
+            "mt_moon_completion": self.is_mt_moon_completed(),
+            "badge_2": self.is_badge_2_achieved(),
+            "bill_completion": self.is_bill_completed(),
+            "rubbed_captains_back": self.is_captains_back_rubbed(),
+            "taught_cut": self.is_cut_taught(),
+            "used_cut_on_good_tree": self.is_cut_used_on_good_tree(),
+            "map_completion_status": {f"map_{map_id}_completion": self.check_map_completion(map_id) for map_id in self.early_map_list}
+        }
+
+    def update_milestones(self):
+        milestone_achieved = False  # Flag to track if any milestone has been achieved        
+        # Initialize a dictionary to track which milestones have been saved if it doesn't exist
+        if not hasattr(self, 'milestones_saved'):
+            self.milestones_saved = {}
+        # Iterate over all milestones
+        for key, func in self.milestones.items():
+            if callable(func):
+                new_status = func()
+                # Check if the milestone has just been achieved and hasn't been saved yet
+                if new_status == 1 and self.milestones[key] != new_status and key not in self.milestones_saved:
+                    milestone_achieved = True
+                    self.milestones_saved[key] = True
+                    print(f"ENV_ID {self.env_id}: Milestone {key} achieved.")
+                self.milestones[key] = new_status
+            else:
+                if key == "map_completion_status":
+                    # Update each map completion status
+                    for map_key in self.milestones[key]:
+                        # print(f'ENV_ID {self.env_id}: map_key={map_key}')
+                        map_id = int(map_key.split('_')[1])
+                        new_status = (1, None) if any(coord[2] == map_id for coord in self.seen_coords) else (0, None)
+                        if new_status == (1, None) and self.milestones[key][map_key] != new_status and map_key not in self.milestones_saved:
+                            milestone_achieved = True
+                            self.milestones_saved[map_key] = True
+                            print(f"ENV_ID {self.env_id}: {map_key} achieved.")
+                        self.milestones[key][map_key] = new_status
+                        # print(f'ENV_ID {self.env_id}: self.milestones[key][map_key]: {self.milestones[key][map_key]}, key: {key}, map_key: {map_key}')
+        # If any milestone has been achieved and it's the first time being saved, trigger saving all states
+        if milestone_achieved:
+            self.save_all_states_v3()
+            print(f"ENV_ID {self.env_id}: State saved due to milestone completion.")    
+        
+    def sync_shared_data(self):
+        with self.lock:  # Use the lock provided to synchronize access
+            self.shared_data[self.env_id] = self.milestones.copy()
+            # print(f'\nshared_data={self.shared_data}\n')
+            print(f"Synchronized shared data for env_id {self.env_id}: {self.shared_data[self.env_id]}\n")
+            
+    def log_milestones(self):
+        # Log current milestone data to file
+        for milestone, status in self.milestones.items():
+            pass
+            # print(f"log_milestones: milestone = {milestone}: status = {status}")    
+        
+    def log_shared_data(self):
+        """
+        Logs the current state of shared_data for this environment.
+        """
+        with self.lock:  # Ensure thread-safe access to shared data
+            # Retrieve this environment's data from the shared dictionary
+            env_data = self.shared_data.get(self.env_id, {})
+            # Log each milestone and its status
+            for milestone, value in env_data.items():
+                pass
+                # print(f"\nSHARED_DICT for env_id {self.env_id}: Milestone {milestone}: Status {value}\n")
+     
+    def assess_and_trigger_state_loads(self):
+        num_envs = len(self.shared_data)  # Assuming this is set correctly
+        milestone_completion_counts = {key: 0 for key in self.milestones.keys() if key != 'map_completion_status'}
+        threshold_dict = dict(zip(self.milestones.keys(), self.milestone_threshold_values))
+        
+        # Initialize counts for map completion statuses if applicable
+        if 'map_completion_status' in self.milestones:
+            for map_key in self.milestones['map_completion_status']:
+                milestone_completion_counts[map_key] = 0
+
+        # Aggregate completion counts
+        for env_id, milestones in self.shared_data.items():
+            for key, value in milestones.items():
+                if key == 'map_completion_status':
+                    for map_key, map_status in value.items():
+                        completed, _ = map_status
+                        if completed:
+                            milestone_completion_counts[map_key] += 1
+                else:
+                    completed = value if isinstance(value, int) else value[0]  # Adjust according to your structure
+                    if completed:
+                        milestone_completion_counts[key] += 1
+
+        # Calculate completion percentages and assess against thresholds
+        for key, count in milestone_completion_counts.items():
+            completion_percentage = count / num_envs
+            if key in threshold_dict and completion_percentage >= threshold_dict[key]:
+                # Calculate the number of environments that need loading
+                envs_to_load = num_envs - int(completion_percentage * num_envs)
+                self.trigger_state_loading(key, envs_to_load)
+     
+    def trigger_state_loading(self, milestone_key, num_envs_to_load):
+        # Assuming the function to get the best state is defined and available
+        # This example simply logs the action; replace with actual loading logic
+        # print(f"ENV_ID: {self.env_id}: Triggering state loading for {num_envs_to_load} environments due to milestone {milestone_key}")
+        best_state_paths = self.get_best_state_paths()
+        self.assign_states_to_envs(best_state_paths, num_envs_to_load)
+
+    def get_best_state_paths(self):
+        # Placeholder function to retrieve the path of the best state
+        # Replace with actual logic to determine the best state
+        # Blank right now
+        return ("path_to_pkl_file.pkl", "path_to_pyboy_state.state")
+
+    def assign_states_to_envs(self, state_paths, num_envs_to_load):
+        # Assign state files to environments that need them
+        env_ids_to_load = random.sample(range(1, self.num_envs), num_envs_to_load)  # Excluding env_0
+        for env_id in env_ids_to_load:
+            with self.lock:
+                self.shared_data[env_id]['files_to_load'] = state_paths 
+                
+    def sort_and_assess_envs_for_loading_v2(self, actions_required, num_envs):
+        worst_envs, best_env_files = [], []
+        for milestone, action_percentage in actions_required.items():
+            envs_completion_times = [
+                (env_id, data.get(milestone, [None, None])[1], data.get("files_to_load"))
+                for env_id, data in self.shared_data.items()
+                if milestone in data and isinstance(data[milestone], list)
+            ]
+            sorted_envs = sorted(envs_completion_times, key=lambda x: x[1] or float('inf'))
+            split_index = int(len(sorted_envs) * (1 - action_percentage))
+            best_env_files.extend(
+                files_to_load for _, _, files_to_load in sorted_envs[:split_index] if files_to_load
+            )
+            worst_envs.extend(env_id for env_id, _, _ in sorted_envs[split_index:])
+        worst_envs = list(dict.fromkeys(worst_envs))  # Deduplicate
+        for env_id in worst_envs:
+            if best_env_files:
+                selected_files = random.choice(best_env_files)
+                with self.lock:
+                    self.shared_data[env_id]["files_to_load"] = selected_files
+            else:
+                print("No best environment files available for loading.")
+                
+    def load_state_from_tuple(self):
+        # Retrieve the tuple of file paths for the current environment
+        with Base.lock:
+            files_to_load = self.shared_data[self.env_id].get("files_to_load", None)
+        if not files_to_load:
+            # print("No files specified for loading.")
+            return
+        if files_to_load != None:
+            # Unpack the tuple into its components
+            pickled_file_path, pyboy_state_file_path = files_to_load
+            print(f"Selected .pkl for loading: {pickled_file_path}")
+            print(f"Selected .state for loading: {pyboy_state_file_path}")            
+            # Load state from the .pkl file
+            try:
+                with open(pickled_file_path, 'rb') as f:
+                    state = pickle.load(f)
+                    for key, value in state.items():
+                        setattr(self, key, value)
+                print(f"Environment state at {pickled_file_path} loaded successfully.")
+            except Exception as e:
+                print(f"Failed to load environment state. Error: {e}")            
+            # Load PyBoy state if the .state file exists
+            try:
+                with open(pyboy_state_file_path, 'rb') as f:
+                    self.game.load_state(f)  # Ensure this is the correct method to load your PyBoy state
+                print(f"PyBoy state at {pyboy_state_file_path} loaded successfully.")
+            except Exception as e:
+                print(f"Failed to load PyBoy state. Error: {e}")
+            # Reset or initialize as necessary post-loading
+            self.reset_count = 0
+            self.step_count = 0
+            self.reset_count += 1            
+                
+    
+    #################################################################################################
+        
+        
     def save_screenshot(self, event, map_n):
         self.screenshot_counter += 1
         ss_dir = Path('screenshots')
@@ -616,15 +964,25 @@ class Environment(Base):
     def __init__(
         self,
         rom_path="pokemon_red.gb",
-        state_path=None, # none
+        state_path=None,
         headless=True,
         save_video=False,
         quiet=False,
         verbose=False,
-        shared_data=shared_data,
         **kwargs,
     ):
         super().__init__(rom_path, state_path, headless, save_video, quiet, **kwargs)
+        # Initialize any class variables not initialized in the Base class here BETINITIALIZE
+        self.already_saved_state = set()
+        
+        # BET ADDED TESTING TODAY to see if it's working
+        print(self.milestones)
+                
+            
+                
+        
+        self.shared_data_local = {}
+        self.local_completion_percentage = 0
         self.counts_map = np.zeros((444, 436))
         self.death_count = 0
         self.verbose = verbose
@@ -687,12 +1045,12 @@ class Environment(Base):
         self.ctr_bonus = 0
         
         # Standard amount for exploration reward per new tile explored
-        self.exploration_reward_increment = 0.02
+        self.exploration_reward_increment = 0.002
         # Bonus amount for exploration reward per new tile explored
-        self.bonus_fixed_expl_reward_increment = 0.05
+        self.bonus_fixed_expl_reward_increment = 0.005
         self.bonus_dynamic_reward = 0
-        self.bonus_dynamic_reward_increment = 0.003
-        self.bonus_dynamic_reward_multiplier = 0.001
+        self.bonus_dynamic_reward_increment = 0.0003
+        self.bonus_dynamic_reward_multiplier = 0.0001
         
         # key: map_n, value: bonus reward amount per coord explored
         self.fixed_bonus_expl_maps = {199: self.bonus_fixed_expl_reward_increment,
@@ -709,6 +1067,17 @@ class Environment(Base):
         self.last_can_mem_val = -1
         self.can_reward = 0
         self.respawn = set()
+        
+        # Exploration reward capper
+        self.healthy_increases = [23, 30, 33, 37, 42, 43]
+        self.ema = 0  # Initialize the EMA at 0 for the exploration reward
+        self.last_time = 0  # To calculate intervals
+        self.smoothing = 2 / (5000000 + 1)  # Assuming a period of 5 million steps for smoothing
+        self.average_healthy_slope = self.calculate_average_slope(self.healthy_increases)
+        self.unhealthy_slope_threshold = 1.25 * self.average_healthy_slope
+        # For calculating projected healthy increase, we need a reference point in time and reward
+        self.reference_time = 0
+        self.reference_reward = self.healthy_increases[0]
 
         # #for reseting at 7 resets - leave commented out
         # self.prev_map_n = None
@@ -762,6 +1131,68 @@ class Environment(Base):
                 # self.total_healing_rew += heal_amount * 1
             elif self.last_health <= 0:
                     self.d
+    
+    
+#     def initialize_shared_data(self):
+#         # Initial data setup as previously described
+#         placeholder_values = {
+#     "badge_1": lambda: float(self.badges >= 1),
+#     "mt_moon_completion": lambda: ram_map.position(self.game)[2] == 4,
+#     "badge_2": lambda: float(self.badges >= 2),
+#     "bill_completion": lambda: int(ram_map.read_bit(self.game, 0xD7F2, 7)),
+#     "rubbed_captains_back": lambda: int(ram_map.read_bit(self.game, 0xD803, 1)),
+#     "taught_cut": lambda: self.cut,
+#     "used_cut_on_good_tree": lambda: self.used_cut > 0,
+#     "map_completion_status": {f"map_{map_id}_completion": (0, None) for map_id in self.early_map_list}
+# }
+#         map_completion_status = {f"map_{map_id}_completion": (0, None) for map_id in self.early_map_list}
+#         initial_shared_data = {**placeholder_values, **map_completion_status}
+#         self.shared_data = {env_id: initial_shared_data.copy() for env_id in range(96)}
+
+#     def update_milestone_2(self, key, achieved):
+#         # Update milestone logic
+#         current_status, _ = self.shared_data[key]
+#         if achieved and not current_status:
+#             self.shared_data[key] = (1, datetime.now())
+#         if self.env_id == 0:
+#             self.aggregate_and_assess_2()
+
+#     def aggregate_and_assess_2(self):
+#         # Aggregate and assess only if this is the master environment
+#         if self.env_id == 0:
+#             milestone_completion = self.assess_milestone_completion_percentages_2()
+#             for key, completion in milestone_completion.items():
+#                 if completion > 0.5:  # Example threshold
+#                     print(f"Action required for {key} due to completion rate of {completion}")
+#             # Possible action: adjusting game states based on aggregated data
+#             self.apply_actions_based_on_assessment()
+
+#     def assess_milestone_completion_percentages_2(self):
+#         # Assuming self.shared_data is a shared structure visible to env_id == 0
+#         num_envs = len(self.shared_data)
+#         milestone_completions = {key: sum(env_data[key][0] for env_data in self.shared_data.values()) / num_envs
+#                                  for key in self.shared_data[0]}
+#         return milestone_completions
+
+#     def apply_actions_based_on_assessment(self):
+#         # Implement actions such as adjusting difficulty or redistributing resources
+#         pass
+
+#     def perform_regular_updates(self):
+#         # Regularly called by each environment to report its status
+#         if self.env_id != 0:
+#             self.report_completion_status()
+
+    #####
+    
+    
+    def report_completion_status(self):
+        # Update master environment with this env's data
+        pass  # Mechanism to report this env's data to env_id == 0
+    def log_shared_data(self):
+        # Logging state for diagnostics
+        for env_id, data in self.shared_data.items():
+            logging.info(f"Env {env_id} Data: {data}")
     
     def update_pokedex(self):
         for i in range(0xD30A - 0xD2F7):
@@ -1543,6 +1974,7 @@ class Environment(Base):
                 detailed_rewards[event_name] = (event_value * reward_increment * reward_multiplier)
         return detailed_rewards
     
+    # Pokecenter stuff (not used)
     def update_map_id_to_furthest_visited(self):
         # Define the ordered list of map IDs from earliest to latest
         map_ids_ordered = [1, 2, 15, 3, 5, 21, 4, 6, 10, 7, 8, 9]        
@@ -1571,13 +2003,13 @@ class Environment(Base):
     def check_bag_items(self, current_bag_items):
         if 'Lemonade' in current_bag_items:
             self.has_lemonade_in_bag = True
-            self.has_lemonade_in_bag_reward = 20
+            self.has_lemonade_in_bag_reward = 10
         if 'Fresh Water' in current_bag_items:
             self.has_fresh_water_in_bag = True
-            self.has_fresh_water_in_bag_reward = 20
+            self.has_fresh_water_in_bag_reward = 10
         if 'Soda Pop' in current_bag_items:
             self.has_soda_pop_in_bag = True
-            self.has_soda_pop_in_bag_reward = 20
+            self.has_soda_pop_in_bag_reward = 10
         if 'Silph Scope' in current_bag_items:
             self.has_silph_scope_in_bag = True
             self.has_silph_scope_in_bag_reward = 20
@@ -1586,10 +2018,10 @@ class Environment(Base):
             self.has_lift_key_in_bag_reward = 20
         if 'Poke Doll' in current_bag_items:
             self.has_pokedoll_in_bag = True
-            self.has_pokedoll_in_bag_reward = 20
+            self.has_pokedoll_in_bag_reward = 3
         if 'Bicycle' in current_bag_items:
             self.has_bicycle_in_bag = True
-            self.has_bicycle_in_bag_reward = 20
+            self.has_bicycle_in_bag_reward = 0
         
     def is_new_map(self, r, c, map_n):
         self.update_heat_map(r, c, map_n)
@@ -1819,6 +2251,36 @@ class Environment(Base):
             self.celadon_tree_reward = 3 + self.ctr_bonus
             self.celadon_tree_reward_counter += 1
 
+    def calculate_average_slope(self, increases):
+        slopes = [(increases[i] - increases[i - 1]) for i in range(1, len(increases))]
+        return sum(slopes) / len(slopes)
+    
+    def update_ema(self, reward, current_time):
+        if self.last_time == 0:  # First update
+            self.ema = reward
+        else:
+            elapsed_time = current_time - self.last_time
+            interval_smoothing = 2 / (elapsed_time + 1)
+            self.ema = (reward * interval_smoothing) + (self.ema * (1 - interval_smoothing))
+        self.last_time = current_time
+        return self.ema
+    
+    def get_adjusted_reward(self, reward, current_time):
+        ema_reward = self.update_ema(reward, current_time)
+        elapsed_time_since_reference = current_time - self.reference_time
+        # Calculate the projected healthy reward based on average healthy slope
+        projected_healthy_reward = self.reference_reward + (self.average_healthy_slope * elapsed_time_since_reference)
+        slope_from_reference = (ema_reward - self.reference_reward) / max(elapsed_time_since_reference, 1)
+        
+        if slope_from_reference > self.unhealthy_slope_threshold:
+            # If growth is unhealthy, cap the reward at the projected healthy level
+            return min(ema_reward, projected_healthy_reward)
+        else:
+            # Update reference if growth is healthy
+            self.reference_time = current_time
+            self.reference_reward = ema_reward
+            return ema_reward
+    
     def get_exploration_reward(self, map_n):
         r, c, map_n = ram_map.position(self.game)
         if self.steps_since_last_new_location >= self.step_threshold:
@@ -1826,6 +2288,8 @@ class Environment(Base):
         self.bonus_dynamic_reward = self.bonus_dynamic_reward_multiplier * len(self.dynamic_bonus_expl_seen_coords)    
         if map_n in self.poketower_maps and int(ram_map.read_bit(self.game, 0xD838, 7)) == 0:
             rew = 0
+        elif map_n in self.poketower_maps and int(ram_map.read_bit(self.game, 0xD838, 7)) != 0:
+            rew = (0.05 * len(self.seen_coords)) if self.used_cut < 1 else 0.13 * len(self.seen_coords)
         elif map_n in self.bonus_exploration_reward_maps:
             rew = (0.05 * len(self.seen_coords)) if self.used_cut < 1 else 0.13 * len(self.seen_coords)
         else:
@@ -1833,80 +2297,46 @@ class Environment(Base):
         self.exploration_reward = rew + self.bonus_dynamic_reward
         self.exploration_reward += self.shaped_exploration_reward
         self.seen_coords.add((r, c, map_n))
+        self.exploration_reward = self.get_adjusted_reward(self.exploration_reward, self.time)
+    
+    def get_location_shaped_reward(self):
+        r, c, map_n = ram_map.position(self.game)
+        current_location = (r, c, map_n)
+        # print(f'cur_loc={current_location}')
+        if map_n in self.fixed_bonus_expl_maps: # map_n eligible for a fixed bonus reward?
+            bonus_fixed_increment = self.fixed_bonus_expl_maps[map_n] # fixed additional reward from dict
+            self.shaped_exploration_reward = bonus_fixed_increment
+            if current_location not in self.dynamic_bonus_expl_seen_coords: # start progress monitoring on eligible map_n 
+                # print(f'current_location={current_location}')
+                # print(f'self.dynamic_bonus_expl_seen_coords={self.dynamic_bonus_expl_seen_coords}')
+                self.dynamic_bonus_expl_seen_coords.add(current_location) # add coords if unseen
+                self.steps_since_last_new_location = 0
+            else:
+                self.steps_since_last_new_location += 1
+                # print(f'incremented self.steps_since_last_new_location by 1 ({self.steps_since_last_new_location})')
+        else:
+            self.shaped_exploration_reward = 0
+   
+    # def get_exploration_reward_v2(self, map_n):
+    #     r, c, map_n = ram_map.position(self.game)
+    #     if self.steps_since_last_new_location >= self.step_threshold:
+    #         # Implementing a cap on the bonus_dynamic_reward_multiplier to prevent it from growing indefinitely
+    #         self.bonus_dynamic_reward_multiplier = min(self.bonus_dynamic_reward_multiplier + self.bonus_dynamic_reward_increment, self.max_multiplier_cap)
+    #     self.bonus_dynamic_reward = self.bonus_dynamic_reward_multiplier * len(self.dynamic_bonus_expl_seen_coords)
+    #     if map_n in self.poketower_maps and int(ram_map.read_bit(self.game, 0xD838, 7)) == 0:
+    #         rew = 0
+    #     elif map_n in self.bonus_exploration_reward_maps:
+    #         rew = (0.05 * len(self.seen_coords)) if self.used_cut < 1 else 0.13 * len(self.seen_coords)
+    #     else:
+    #         rew = (0.02 * len(self.seen_coords)) if self.used_cut < 1 else 0.1 * len(self.seen_coords)
+    #     self.exploration_reward = rew + self.bonus_dynamic_reward
+    #     self.exploration_reward += self.shaped_exploration_reward
+    #     # Cap the exploration_reward to prevent it from becoming too large
+    #     self.exploration_reward = min(self.exploration_reward, self.exploration_reward_cap)
+    #     self.seen_coords.add((r, c, map_n))
+
+
         
-    # Maybe doesn't work well?
-    def get_exploration_reward_big(self, map_n):
-        try:
-            # Define groups of maps as lists for easier checking
-            special_maps = self.pokehideout + self.saffron_city + [self.fighting_dojo] + [self.vermilion_gym]
-            # Check if the game state indicates a special condition
-            if int(ram_map.read_bit(self.game, 0xD81B, 7)) == 0:
-                # Determine the base exploration reward based on the map
-                if map_n in special_maps:
-                    base_reward = 0.2
-                else:
-                    base_reward = 0.02 if self.used_cut < 1 else 0.15
-                self.exploration_reward = base_reward * len(self.seen_coords)
-                # Specific rewards for map 201 (Rocket Hideout Level 3)
-                if map_n == 201:
-                    # Process each seen coordinate
-                    for coord in self.seen_coords:
-                        r, c = coord[:2]  # Assuming seen_coords stores tuples like (row, column, map_n)
-                        # Direct coordinate matches with specific rewards
-                        direct_coords = [(22, 13), (22, 14), (21, 14), (21, 15), (20, 15), (19, 15), (11, 12), (18, 10)]
-                        big_reward_coords = [(13, 12), (13, 13), (13, 14), (14, 12), (15, 12), (16, 9), (16, 10), (17, 9), (23, 13), (24, 13), (25, 13)]
-                        biggest_reward_coord = (18, 11)                    
-                        # Checking and applying rewards
-                        if (r, c) in direct_coords:
-                            self.exploration_reward += 0.3
-                        if (r, c) in big_reward_coords:
-                            self.exploration_reward += 0.5
-                        if (r, c) == biggest_reward_coord:
-                            self.exploration_reward += 1.0                    
-                        # Ranges with specific rewards
-                        range_checks = [
-                            (lambda r, c: r == 9 and 13 <= c <= 20, 0.5),
-                            (lambda r, c: 9 <= r <= 11 and c == 13, 0.5),
-                            (lambda r, c: 11 <= r <= 13 and c == 10, 0.5),
-                            (lambda r, c: 14 <= r <= 16 and c == 12, 0.5),
-                            (lambda r, c: 19 <= r <= 26 and c == 19, 0.3),
-                            (lambda r, c: 25 <= r <= 26 and 13 <= c <= 19, 0.3),
-                        ]
-                        # Apply rewards for ranges
-                        for check, reward in range_checks:
-                            if check(r, c):
-                                self.exploration_reward += reward
-            elif map_n == 202:
-                # Adjust the exploration reward for map 202 specifically, if necessary
-                self.exploration_reward += 0.5
-                        # Extra reward for exploring specific coordinates around trees
-            elif map_n == 6:
-                for coord in self.seen_coords:
-                    if any(self.in_coord_range(coord, ranges) for ranges in self.celadon_tree_attraction_coords.values()):
-                        self.exploration_reward += 0.45  # Additional reward for each coordinate in the specified ranges
-                        # print(f'BONUS reward for coord ({r},{c}) on {map_n}')
-            else:
-                # Default exploration reward logic for other cases
-                self.exploration_reward = 0.02 * len(self.seen_coords) if self.used_cut < 1 else 0.15 * len(self.seen_coords)
-        except:
-            if int(ram_map.read_bit(self.game, 0xD81B, 7)) == 0:
-                if map_n in self.poketower:
-                    self.exploration_reward = 0
-                elif map_n in self.pokehideout:
-                    self.exploration_reward = (0.2 * len(self.seen_coords))
-                elif map_n in self.saffron_city:
-                    self.exploration_reward = (0.2 * len(self.seen_coords))
-                elif map_n in self.fighting_dojo:
-                    self.exploration_reward = (0.2 * len(self.seen_coords))
-                elif map_n in self.vermilion_gym:
-                    self.exploration_reward = (0.2 * len(self.seen_coords))
-                else:
-                    # BET: increase exploration after cutting at least 1 tree to encourage exploration vs cut perseveration
-                    self.exploration_reward = 0.02 * len(self.seen_coords) if self.used_cut < 1 else 0.15 * len(self.seen_coords) # 0.2 doesn't work (too high??)
-            else:
-                # BET: increase exploration after cutting at least 1 tree to encourage exploration vs cut perseveration
-                self.exploration_reward = 0.02 * len(self.seen_coords) if self.used_cut < 1 else 0.15 * len(self.seen_coords) # 0.2 doesn't work (too high??)
-            
     def get_respawn_reward(self):
         center = self.game.get_memory_value(0xD719)
         self.respawn.add(center)
@@ -1954,42 +2384,51 @@ class Environment(Base):
         # print(f"\n\nTotal Reward: {total_reward}")
         return total_reward
 
-    def get_location_shaped_reward(self):
-        r, c, map_n = ram_map.position(self.game)
-        current_location = (r, c, map_n)
-        # print(f'cur_loc={current_location}')
-        if map_n in self.fixed_bonus_expl_maps: # map_n eligible for a fixed bonus reward?
-            bonus_fixed_increment = self.fixed_bonus_expl_maps[map_n] # fixed additional reward from dict
-            self.shaped_exploration_reward = bonus_fixed_increment
-            if current_location not in self.dynamic_bonus_expl_seen_coords: # start progress monitoring on eligible map_n 
-                # print(f'current_location={current_location}')
-                # print(f'self.dynamic_bonus_expl_seen_coords={self.dynamic_bonus_expl_seen_coords}')
-                self.dynamic_bonus_expl_seen_coords.add(current_location) # add coords if unseen
-                self.steps_since_last_new_location = 0
-            else:
-                self.steps_since_last_new_location += 1
-                # print(f'incremented self.steps_since_last_new_location by 1 ({self.steps_since_last_new_location})')
-        else:
-            self.shaped_exploration_reward = 0
+
 
     def reset(self, seed=None, options=None, max_episode_steps=20480, reward_scale=4.0):
         """Resets the game. Seeding is NOT supported"""
-        # BET ADDED
-        # Logic for loading envs based off % milestone achievement
-        # Decision to load a state based on "files_to_load"
-        # Only 1 env should execute the below:
+
+        ##################################################################
+        # added today new BET ADDED
+        # Update the shared dict with any changes
+        self.sync_shared_data()  
+        # Only environment 0 assesses and triggers state loads for other envs if needed
         if self.env_id == 0:
-            # Updates shared dict (self.shared_data) with milestones dict for each env
-            self.assess_milestone_completion_percentage()
-            # Returns average completion percentage for each milestone across all envs
-            self.overall_progress = self.compute_overall_progress(self.shared_data)
-            # Compares self.overall_progress and self.milestone_threshold dicts
-            self.actions_required = self.assess_progress_for_action(self.overall_progress, self.milestone_threshold_dict)
-            # Assesses states for loading using saved state files/dirs
-            self.sort_and_assess_envs_for_loading(self.shared_data, self.actions_required, 96)
-                    
-        # Only loads a state if env was determined to need loading
+            self.assess_and_trigger_state_loads()        
+        # Load all envs requiring loads. Will not load if not required.
         self.load_state_from_tuple()
+        # Synchronize shared data before making any changes or checks
+        self.sync_shared_data()
+        # Attempt to load state if required. This function will check if loading is needed.
+        self.load_state_from_tuple()
+        # Update milestones for the current environment
+        self.update_milestones()
+        # Log current milestone statuses
+        self.log_milestones()
+        # Log the current state of shared data
+        self.log_shared_data()
+
+        # # BET ADDED
+        # # Logic for loading envs based off % milestone achievement
+        # # Decision to load a state based on "files_to_load"
+        # self.local_completion_percentage = self.assess_milestone_completion_percentages()
+        # self.log_shared_data()
+        # self.log_milestone_completion_percentage()
+        # # print(f'\nenv_id: {self.env_id}, COMPLETION PERCENTAGE: {self.local_completion_percentage}')
+        # # Only 1 env should execute the below:
+        # if self.env_id == 0:
+        #     # Updates shared dict (self.shared_data) with milestones dict for each env
+        #     self.assess_milestone_completion_percentages()
+        #     # Returns average completion percentage for each milestone across all envs
+        #     self.overall_progress = self.compute_overall_progress(self.shared_data)
+        #     # Compares self.overall_progress and self.milestone_threshold dicts
+        #     self.actions_required = self.assess_progress_for_action(self.overall_progress, self.milestone_threshold_dict)
+        #     # Assesses states for loading using saved state files/dirs
+        #     self.sort_and_assess_envs_for_loading(self.shared_data, self.actions_required, 96)
+                    
+        # # Only loads a state if env was determined to need loading
+        # self.load_state_from_tuple()
                 
         self.init_caches()
         assert len(self.all_events_string) == 2552, f'len(self.all_events_string): {len(self.all_events_string)}'
@@ -2022,7 +2461,7 @@ class Environment(Base):
         self.max_events = 0
         self.max_level_sum = 0
         self.max_opponent_level = 0
-        self.seen_coords = set()
+        self.seen_coords = set() # self.seen_coords.add((r, c, map_n))
         self.seen_maps = set()
         self.death_count_per_episode = 0
         self.total_healing = 0
@@ -2030,7 +2469,7 @@ class Environment(Base):
         self.last_party_size = 1
         self.hm_count = 0
         self.cut = 0
-        self.used_cut = 0 # don't reset, for tracking
+        # self.used_cut = 0 # don't reset, for tracking
         self.cut_coords = {}
         self.cut_tiles = {}
         self.cut_state = deque(maxlen=3)
@@ -2097,29 +2536,72 @@ class Environment(Base):
         self.expl = 0
         self.celadon_tree_reward = 0
         self.celadon_tree_reward_counter = 0
+        self.initial_multiplier_value = 1
+        self.bonus_dynamic_reward_multiplier = self.initial_multiplier_value  # Reset the dynamic bonus multiplier
+        self.steps_since_last_new_location = 0  # Reset step counter for new locations
         self.exploration_reward = 0
-
-        # Share data for milestone completion % assessment
-        self.assess_milestone_completion_percentage()
-    
+        
         return self.render(), {}
 
     def step(self, action, fast_video=True):
+
+
+        # if self.time % 24480 == 0:
+        #     # Log each environment's shared data
+        #     for self.env_id, data in self.shared_data.items():
+        #         # Prepare a string representation of the environment's shared data
+        #         self.data_str = json.dumps(data, indent=4)
+        #         # Write the environment ID and its shared data to the log
+        #                 # Example of a log message
+        #         print(f"env_id: {self.env_id}; step: {self.time}; self.data_str={self.data_str}")
+        
+
+       
+        
         run_action_on_emulator(self.game, self.screen, ACTIONS[action], self.headless, fast_video=fast_video,)
         self.time += 1
         
         if self.save_video:
             self.add_video_frame()
             
-        if self.time % 10 == 0:
-            self.save_all_states_v3()
-        
-        if self.time % 15 == 0:
-            self.load_state_from_directory_v2()
-            
         # Get local coordinate position and map_n
         r, c, map_n = ram_map.position(self.game)
 
+
+        # if map_n == 15:
+        #     self.completed_milestones.append(15)
+        
+        # if map_n in self.early_map_list and map_n not in self.already_saved_state:
+        #     self.save_all_states_v3()
+        #     self.already_saved_state.add(map_n)
+            
+        # if self.time % 1000 == 0:
+        #     # BET ADDED
+        #     # Logic for loading envs based off % milestone achievement
+        #     # Decision to load a state based on "files_to_load"
+        #     self.assess_milestone_completion_percentages()
+        #     # Only 1 env should execute the below:
+        #     if self.env_id == 0:
+        #         # Updates shared dict (self.shared_data) with milestones dict for each env
+        #         self.assess_milestone_completion_percentages()
+        #         # Returns average completion percentage for each milestone across all envs
+        #         self.overall_progress = self.compute_overall_progress(self.shared_data)
+        #         # Compares self.overall_progress and self.milestone_threshold dicts
+        #         self.actions_required = self.assess_progress_for_action(self.overall_progress, self.milestone_threshold_dict)
+        #         # Assesses states for loading using saved state files/dirs
+        #         self.sort_and_assess_envs_for_loading(self.shared_data, self.actions_required, 96)
+                        
+        #     # Only loads a state if env was determined to need loading
+        #     self.load_state_from_tuple()
+                
+        ##################################################################
+        # New added today BET ADDED
+        self.update_milestones()
+        self.log_milestones()
+        self.log_shared_data()
+        if self.env_id == 0 and self.time == 1000:
+            self.assess_and_trigger_state_loads()
+        
         # Celadon tree reward
         # print(f'action={action}')
         self.celadon_gym_4_tree_reward(action)
@@ -2178,8 +2660,8 @@ class Environment(Base):
         self.calculate_cut_coords_and_tiles_rewards()
         self.calculate_seen_caught_pokemon_moves()
 
-        # Share data for milestone completion % assessment
-        self.assess_milestone_completion_percentage()
+        # # Share data for milestone completion % assessment
+        # self.assess_milestone_completion_percentages()
         
         
         # Final reward calculation
@@ -2194,7 +2676,14 @@ class Environment(Base):
         
         # if done:
         #     self.save_state()
-        if done or self.time % 10000 == 0:   
+        if done or self.time % 10000 == 0: 
+            # Get the shared dict for all envs for infos reporting
+            # if self.env_id == 0:
+            #     with Base.lock:
+            #         self.shared_data_local = self.shared_data
+            # else:
+            #     self.shared_data_local = {}
+                     
             info = {
                 "pokemon_exploration_map": self.counts_map,
                 "stats": {
@@ -2275,7 +2764,15 @@ class Environment(Base):
                     'state_loaded_instead_of_resetting_in_game': self.state_loaded_instead_of_resetting_in_game,
                     'defeated_fighting_dojo': self.defeated_fighting_dojo,
                     'got_hitmonlee': self.got_hitmonlee,
-                    'got_hitmonchan': self.got_hitmonchan,                  
+                    'got_hitmonchan': self.got_hitmonchan,  
+                    'self.bonus_dynamic_reward_multiplier': self.bonus_dynamic_reward_multiplier,
+                    'self.bonus_dynamic_reward_increment': self.bonus_dynamic_reward_increment,
+                    'len(self.dynamic_bonus_expl_seen_coords)': len(self.dynamic_bonus_expl_seen_coords),
+                    'len(self.seen_coords)': len(self.seen_coords),
+                    'self.milestones': self.milestones,
+                    'local_completion_percentage': self.local_completion_percentage,
+                    
+                                    
                     "silph_co_events_aggregate": {
                         **ram_map_leanke.monitor_silph_co_events(self.game),
                     },
@@ -2342,6 +2839,9 @@ class Environment(Base):
                     "has_bicycle_in_bag_reward": self.has_bicycle_in_bag_reward,
                     "respawn_reward": self.len_respawn_reward,
                     "celadon_tree_reward": self.celadon_tree_reward,
+                    "self.bonus_dynamic_reward": self.bonus_dynamic_reward,
+                    "self.shaped_exploration_reward": self.shaped_exploration_reward,
+                    
                     "special_location_rewards": {
                         "detailed_rewards_silph_co": {
                             **self.calculate_event_rewards_detailed(
@@ -2453,178 +2953,61 @@ class Environment(Base):
         #        self.gym5_events_reward + self.gym6_events_reward + 
         #        self.gym7_events_reward)
 
-        # self.compute_and_print_rewards(self.event_reward, self.bill_capt_reward, self.seen_pokemon_reward, self.caught_pokemon_reward, self.moves_obtained_reward, self.bill_reward, self.hm_reward, self.level_reward, self.death_reward, self.badges_reward, self.healing_reward, self.exploration_reward, self.cut_reward, self.that_guy_reward, self.cut_coords_reward, self.cut_tiles_reward, self.tree_distance_reward, self.dojo_reward, self.hideout_reward, self.has_lemonade_in_bag_reward, self.has_silph_scope_in_bag_reward, self.has_lift_key_in_bag_reward, self.has_pokedoll_in_bag_reward, self.has_bicycle_in_bag_reward, special_location_reward, self.can_reward)
+        # self.compute_and_print_rewards(self.event_reward, self.bill_capt_reward, self.seen_pokemon_reward, self.caught_pokemon_reward, self.moves_obtained_reward, self.bill_reward, self.hm_reward, self.level_reward, self.death_reward, self.badges_reward, self.healing_reward, self.exploration_reward, self.cut_reward, self.that_guy_reward, self.cut_coords_reward, self.cut_tiles_reward, self.tree_distance_reward, self.dojo_reward, self.hideout_reward, self.has_lemonade_in_bag_reward, self.has_silph_scope_in_bag_reward, self.has_lift_key_in_bag_reward, self.has_pokedoll_in_bag_reward, self.has_bicycle_in_bag_reward, special_location_reward, self.can_reward)  
 
-    
-    def prepare_info(self):
-        levels = [self.game.get_memory_value(a) for a in [0xD18C, 0xD1B8, 0xD1E4, 0xD210, 0xD23C, 0xD268]]
-        badges = self.get_badges_reward()
-        party_size, party_levels = self.get_level_reward()
-        money = self.get_money()
-        opponent_level_reward = self.get_opponent_level_reward()
-
-        # Updating map exploration and interaction details
-        self.update_map_id_to_furthest_visited()
-        current_bag_items = self.api.items.get_bag_item_ids()
-        self.check_bag_items(current_bag_items)
-        r, c, map_n = ram_map.position(self.game)
-        exploration_reward = self.get_exploration_reward(map_n)
-        events = self.get_all_events_reward()
-
-        # Aggregating detailed rewards for various events and locations
-        detailed_rewards_silph_co = self.calculate_event_rewards_detailed(self.get_silph_co_events_reward(), 10, 2, 1)
-        detailed_rewards_dojo = self.calculate_event_rewards_detailed(self.get_dojo_events_reward(), 10, 2, 1)
-        detailed_rewards_hideout = self.calculate_event_rewards_detailed(self.get_hideout_events_reward(), 10, 2, 1)
-        detailed_rewards_poke_tower = self.calculate_event_rewards_detailed(self.get_poke_tower_events_reward(), 10, 2, 1)
-        detailed_rewards_gyms = {
-            "gym_3_detailed_rewards": self.calculate_event_rewards_detailed(self.get_gym_events_reward()['gym_3'], 10, 2, 1),
-            "gym_4_detailed_rewards": self.calculate_event_rewards_detailed(self.get_gym_events_reward()['gym_4'], 10, 2, 1),
-            "gym_5_detailed_rewards": self.calculate_event_rewards_detailed(self.get_gym_events_reward()['gym_5'], 10, 2, 1),
-            "gym_6_detailed_rewards": self.calculate_event_rewards_detailed(self.get_gym_events_reward()['gym_6'], 10, 2, 1),
-            "gym_7_detailed_rewards": self.calculate_event_rewards_detailed(self.get_gym_events_reward()['gym_7'], 10, 2, 1),
-        }
-        return {
-            levels, badges, party_size, party_levels, money, opponent_level_reward, r, c, map_n, exploration_reward, events,
-            detailed_rewards_silph_co, detailed_rewards_dojo, detailed_rewards_hideout, detailed_rewards_poke_tower,
-            detailed_rewards_gyms
-        }
-        
-    def construct_info(self):
-        (levels, badges, party_size, party_levels, money, opponent_level_reward, r, c, map_n, exploration_reward, events,
-            detailed_rewards_silph_co, detailed_rewards_dojo, detailed_rewards_hideout, detailed_rewards_poke_tower,
-            detailed_rewards_gyms) = self.prepare_info()
-        return {
-        "pokemon_exploration_map": self.counts_map,
-        "stats": {
-            "step": self.time,
-            "x": c,
-            "y": r,
-            "map": map_n,
-            "pcount": int(self.game.get_memory_value(0xD163)),
-            "levels": levels,
-            "levels_sum": sum(levels),
-            "coord": np.sum(self.counts_map),
-            "deaths": self.death_count,
-            "deaths_per_episode": self.death_count_per_episode,
-            "badges": badges,
-            "self.badge_count": self.badge_count,
-            "badge_1": float(badges >= 1),
-            "badge_2": float(badges >= 2),
-            "badge_3": float(badges >= 3),
-            "badge_4": float(badges >= 4),
-            "badge_5": float(badges >= 5),
-            "badge_6": float(badges >= 6),
-            "events": len(self.past_events_string),
-            "opponent_level": self.max_opponent_level,
-            "met_bill": int(ram_map.read_bit(self.game, 0xD7F1, 0)),
-            "used_cell_separator_on_bill": int(ram_map.read_bit(self.game, 0xD7F2, 3)),
-            "ss_ticket": int(ram_map.read_bit(self.game, 0xD7F2, 4)),
-            "met_bill_2": int(ram_map.read_bit(self.game, 0xD7F2, 5)),
-            "bill_said_use_cell_separator": int(ram_map.read_bit(self.game, 0xD7F2, 6)),
-            "left_bills_house_after_helping": int(ram_map.read_bit(self.game, 0xD7F2, 7)),
-            "got_hm01": int(ram_map.read_bit(self.game, 0xD803, 0)),
-            "rubbed_captains_back": int(ram_map.read_bit(self.game, 0xD803, 1)),
-            "maps_explored": len(self.seen_maps),
-            "party_size": party_size,
-            "highest_pokemon_level": max(party_levels),
-            "total_party_level": sum(party_levels),
-            "money": money,
-            "pokemon_exploration_map": self.counts_map,
-            "seen_npcs_count": len(self.seen_npcs),
-            "seen_pokemon": np.sum(self.seen_pokemon),
-            "caught_pokemon": np.sum(self.caught_pokemon),
-            "moves_obtained": np.sum(self.moves_obtained),
-            "hidden_obj_count": len(self.seen_hidden_objs),
-            "bill_saved": self.bill_state,
-            "hm_count": self.hm_count,
-            "cut_taught": self.cut,
-            'cut_coords': self.cut_coords,
-            'cut_tiles': self.cut_tiles,
-            'bag_menu': self.seen_bag_menu,
-            'stats_menu': self.seen_stats_menu,
-            'pokemon_menu': self.seen_pokemon_menu,
-            'start_menu': self.seen_start_menu,
-            'used_cut': self.used_cut,
-            'state_loaded_instead_of_resetting_in_game': self.state_loaded_instead_of_resetting_in_game,
-            'defeated_fighting_dojo': self.defeated_fighting_dojo,
-            'got_hitmonlee': self.got_hitmonlee,
-            'got_hitmonchan': self.got_hitmonchan,
-        },
-        "special_rewards": {
-        "reward": self.reward,
-        "exploration_reward": exploration_reward,
-        "detailed_rewards_silph_co": detailed_rewards_silph_co,
-        "detailed_rewards_dojo": detailed_rewards_dojo,
-        "detailed_rewards_hideout": detailed_rewards_hideout,
-        "detailed_rewards_poke_tower": detailed_rewards_poke_tower,
-        "detailed_rewards_gyms": detailed_rewards_gyms,
-                },
-                "silph_co_events_aggregate": {
-                    **ram_map_leanke.monitor_silph_co_events(self.game),
-                },
-                "dojo_events_aggregate": {
-                    **ram_map_leanke.monitor_dojo_events(self.game),  
-                },
-                "hideout_events_aggregate": {
-                    **ram_map_leanke.monitor_hideout_events(self.game),
-                },
-                "poke_tower_events_aggregate": {
-                    **ram_map_leanke.monitor_poke_tower_events(self.game),
-                },
-                "gym_events": {
-                        "gym_3_events": { 
-                    **ram_map_leanke.monitor_gym3_events(self.game),
-                    }, 
-                        "gym_4_events": {  
-                    **ram_map_leanke.monitor_gym4_events(self.game),  
-                    }, 
-                        "gym_5_events": {  
-                    **ram_map_leanke.monitor_gym5_events(self.game),
-                    },  
-                        "gym_6_events": {  
-                    **ram_map_leanke.monitor_gym6_events(self.game), 
-                    }, 
-                        "gym_7_events": {  
-                    **ram_map_leanke.monitor_gym7_events(self.game), 
-                    },
-    }}
-
+    # Serializes instance vars() and saves pyboy state file
     def save_all_states_v3(self, is_failed=False):
-        # Assume self.save_state_dir is properly initialized in Base class init
-        # self.save_state_dir = Path(__file__).parent / "save_states/"
-        # self.save_state_dir.mkdir(exist_ok=True)       
-        # Constructing state directory path
-        datetime_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.state_dir = self.save_state_dir / Path(f'event_reward_{self.event_reward}') / f'env_id_{self.env_id}'        
+        # Make sure self.save_state_dir is properly initialized in Base class init
+        datetime_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.state_dir = self.save_state_dir / Path(f'event_reward_{self.event_reward}') / f'env_id_{self.env_id}'
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self.state_file_path = self.state_dir / f"env_id_{self.env_id}_{datetime_str}_state.pkl"
-        self.pyboy_state_file_path = self.state_dir / f"env_id_{self.env_id}_{datetime_str}_state.state" 
-        # Explicitly exclude non-serializable variables
-        excluded_vars = ['game', 'screen', 'api']
-        state = {key: value for key, value in vars(self).items() if key not in excluded_vars}
+        self.pyboy_state_file_path = self.state_dir / f"env_id_{self.env_id}_{datetime_str}_state.state"
+
+        state = {}
+        for key, value in vars(self).items():
+            try:
+                dill.dumps(value)
+                state[key] = value
+                logging.info(f"Pickled: {key}")
+            except Exception as e:
+                logging.warning(f"Failed to pickle {key}: {e}")
+        
+        # Save the state dictionary that only includes picklable items
         try:
             with open(self.state_file_path, 'wb') as f:
                 dill.dump(state, f)
-            print(f"Saved state to {self.state_file_path}")
+            logging.info(f"Saved state to {self.state_file_path}")
         except Exception as e:
-            print(f"Failed to save state. Error: {e}")  
+            print(f"Failed to save state. Error: {e}")
+
+            state = {key: value for key, value in vars(self).items() if not key in self.problematic_vars}
+            try:
+                with open(self.state_file_path, 'wb') as f:
+                    dill.dump(state, f)
+                print(f"Saved state to {self.state_file_path}")
+            except Exception as e:
+                print(f"Failed to save state. Error: {e}")
+        
         try:
             with open(self.pyboy_state_file_path, 'wb') as f:
                 self.game.save_state(f)
-            print(f'saved pyboy state file {self.pyboy_state_file_path}')
-        except:
-            print(f'{self.pyboy_state_file_path} failed to save pyboy state..')
-    
+            logging.info(f"Saved PyBoy state to {self.pyboy_state_file_path}")
+        except Exception as e:
+            print(f'{self.pyboy_state_file_path} failed to save pyboy state. Error: {e}')
+            print(f'{self.pyboy_state_file_path} failed to save pyboy state. Error: {e}')
+            
+            
     def select_best_states(self):
         # Function to scan all folders containing .pkl .state files and order them
         # from highest to lowest using various metrics:
-        # badge_1 completion "badge_1": float(self.badges >= 1)
-        # mt moon completion 
-        # badge_2 completion "badge_2": float(self.badges >= 2)
-        # bill completion int(ram_map.read_bit(self.game, 0xD7F2, 7))
-        # rubbed_captains_back int(ram_map.read_bit(self.game, 0xD803, 1))
-        # taught cut self.cut
-        # used cut on a good tree self.used_cut>0
+        # badge_1 completion: "badge_1": float(self.badges >= 1)
+        # mt moon completion: map_n == 4
+        # badge_2 completion: "badge_2": float(self.badges >= 2)
+        # bill completion: int(ram_map.read_bit(self.game, 0xD7F2, 7))
+        # rubbed_captains_back: int(ram_map.read_bit(self.game, 0xD803, 1))
+        # taught cut: self.cut
+        # used cut on a good tree: self.used_cut>0
         pass
         
     # Version of loading fn that sorts env saved state folders by event_reward (in this case)
@@ -2671,68 +3054,86 @@ class Environment(Base):
         self.reset_count = 0
         self.step_count = 0
         self.reset_count += 1
-        
-    def load_state_from_tuple(self):
-        # Retrieve the tuple of file paths for the current environment
-        with Base.lock:
-            files_to_load = self.shared_data[self.env_id].get("files_to_load", None)
 
-        if not files_to_load:
-            print("No files specified for loading.")
-            return
 
-        if files_to_load != None:
-            # Unpack the tuple into its components
-            pickled_file_path, pyboy_state_file_path = files_to_load
+    def check_and_update_milestones(self):
+        for milestone_key in self.milestones.keys():
+            self.update_milestone(milestone_key)
 
-            print(f"Selected .pkl for loading: {pickled_file_path}")
-            print(f"Selected .state for loading: {pyboy_state_file_path}")
+
+    def update_milestone(self, key):
+        try:
+            achieved = self.milestones[key]() if key in self.milestones else False
+            # Ensure current_time is correctly initialized and updated before calling this method
+            current_status, current_timestamp = self.shared_data[self.env_id].get(key, (0, None))
             
-            # Load state from the .pkl file
-            try:
-                with open(pickled_file_path, 'rb') as f:
-                    state = pickle.load(f)
-                    for key, value in state.items():
-                        setattr(self, key, value)
-                print(f"Environment state at {pickled_file_path} loaded successfully.")
-            except Exception as e:
-                print(f"Failed to load environment state. Error: {e}")
-            
-            # Load PyBoy state if the .state file exists
-            try:
-                with open(pyboy_state_file_path, 'rb') as f:
-                    self.game.load_state(f)  # Ensure this is the correct method to load your PyBoy state
-                print(f"PyBoy state at {pyboy_state_file_path} loaded successfully.")
-            except Exception as e:
-                print(f"Failed to load PyBoy state. Error: {e}")
+            if achieved:
+                # For map-based milestones, we check if we need to save the state
+                if key == "early_map_reached" and achieved and (ram_map.position(self.game)[2] not in self.already_saved_state):
+                    self.save_all_states_v3()  # Assuming this function saves the state
+                    self.already_saved_state.add(ram_map.position(self.game)[2])
 
-            # Reset or initialize as necessary post-loading
-            self.reset_count = 0
-            self.step_count = 0
-            self.reset_count += 1
+                # Update milestone status if newly achieved or timestamp is earlier
+                if current_timestamp is None or self.current_time < current_timestamp:
+                    with self.lock:  # Ensuring thread-safe update
+                        self.shared_data[self.env_id][key] = (1, self.current_time)
+            else:
+                if key not in self.shared_data[self.env_id]:
+                    with self.lock:
+                        self.shared_data[self.env_id][key] = (0, None)
+        except Exception as e:
+            print(f"Error updating milestone {key}: {e}")
 
-    def assess_milestone_completion_percentage(self):
-        milestones = {
-            "badge_1": (float(self.badges >= 1), self.current_time),
-            "mt_moon_completion": (float('mt_moon_key' in self.completed_milestones), self.current_time),
-            "badge_2": (float(self.badges >= 2), self.current_time),
-            "bill_completion": (float(ram_map.read_bit(self.game, 0xD7F2, 7)), self.current_time),
-            "rubbed_captains_back": (float(ram_map.read_bit(self.game, 0xD803, 1)), self.current_time),
-            "taught_cut": (float(self.cut), self.current_time),
-            "used_cut_on_good_tree": (float(self.used_cut > 0), self.current_time),
-        }
-        with Base.lock:
-            self.shared_data[self.env_id] = milestones
+    def assess_milestone_completion_percentages(self):
+        # Initialize a dictionary to count completions for each milestone
+        milestone_completions = {milestone: 0 for milestone in self.milestone_keys}
+
+        # Go through each environment's data in the shared dictionary
+        for env_data in self.shared_data.values():
+            for milestone in self.milestone_keys:
+                # Increment count if milestone is achieved
+                if env_data.get(milestone, (0, None))[0] == 1:  # Checking if achieved == 1
+                    milestone_completions[milestone] += 1
+
+        # Calculate completion percentages
+        num_envs = len(self.shared_data)
+        milestone_completion_percentages = {milestone: completions / num_envs
+                                            for milestone, completions in milestone_completions.items()}
+
+        # self.logger.error(f'milestone completion percentages: {milestone_completion_percentages}')
+        return milestone_completion_percentages
+
+    def log_milestone_completion_percentage(self):
+        """
+        Logs the completion percentage for each milestone.
+        """
+        if self.env_id == 0:  # Assuming env_id == 0 does the logging
+            for milestone in self.milestones:
+                completion_percentage = sum(self.shared_data[env_id][milestone][0] for env_id in self.shared_data) / len(self.shared_data)
+                # print(f"Milestone '{milestone}' completion percentage: {completion_percentage * 100:.2f}%")
+    
+    def log_shared_data(self):
+        """
+        Logs the shared data dict for diagnostics.
+        """
+        if self.env_id == 0:
+            print(f"Shared data for env {self.env_id}: {self.shared_data[self.env_id]}")
+            # print(f"Shared data for env {self.env_id}: {self.shared_data[self.env_id]}")
+    
         
     # One env computes each milestone completion % over all envs
     def compute_overall_progress(self, shared_data):
-        milestone_keys = ["badge_1", "mt_moon_completion", "badge_2", 
-                        "bill_completion", "rubbed_captains_back", 
-                        "taught_cut", "used_cut_on_good_tree"]
+        # milestone_keys = ["badge_1", "mt_moon_completion", "badge_2", 
+        #                 "bill_completion", "rubbed_captains_back", 
+        #                 "taught_cut", "used_cut_on_good_tree"]
+        
+        milestone_keys = ["pallet_town", "route_1", "route_2", "pewter_gym", "viridian_city", "route_3_to_mt_moon", "route_3", "mt_moon_floor_1", "mt_moon_floor_1", "mt_moon_floor_1",]
+        
         overall_progress = {key: 0 for key in milestone_keys}  # Initialize dict  
         for key in milestone_keys:
             # Calculate average completion percentage for each milestone
             overall_progress[key] = sum(data.get(key, (0, 0))[0] for data in shared_data.values()) / len(shared_data)
+            print(f'overall_prog: {overall_progress}')
         return overall_progress
     
     def assess_progress_for_action(self, overall_progress, milestone_threshold_dict):
