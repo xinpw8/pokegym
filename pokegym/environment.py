@@ -123,6 +123,7 @@ def play():
     env = Environment(
         rom_path="pokemon_red.gb",
         state_path=None,
+        state_path=None,
         headless=False,
         disable_input=False,
         sound=False,
@@ -130,6 +131,8 @@ def play():
         verbose=True,
     )
 
+    # Update pokemap visualizer text here
+    env = StreamWrapper(env, stream_metadata={"user": "boucybet |BET| test\n"})
     # Update pokemap visualizer text here
     env = StreamWrapper(env, stream_metadata={"user": "boucybet |BET| test\n"})
 
@@ -427,14 +430,28 @@ class Base:
         self.pokemon_tower_maps = [142, 143, 144, 145, 146, 147, 148]
         self.silph_co_maps = [181, 207, 208, 209, 210, 211, 212, 213, 233, 234, 235, 236]
         self.early_map_list = [0, 1, 12, 51, 2, 54, 59, 14, 59, 60, 61]       
+        self.early_map_list = [0, 1, 12, 51, 2, 54, 59, 14, 59, 60, 61]   
+        self.bill_and_ss_anne_maps = [88, 101]
+        self.cerulean_gym_map = [65]
+        self.advanced_gym_maps = [92, 134, 157, 166, 178] # Vermilion, Celadon, Fuchsia, Cinnabar, Saffron
+        self.rocket_hideout_b4f_and_lift_maps = [202, 203]
+        self.pokemon_tower_maps = [142, 143, 144, 145, 146, 147, 148]
+        self.silph_co_maps = [181, 207, 208, 209, 210, 211, 212, 213, 233, 234, 235, 236]
+        self.early_map_list = [0, 1, 12, 51, 2, 54, 59, 14, 59, 60, 61]       
         self.rocket_hideout_maps = [199, 200, 201, 202, 203]
         self.poketower_maps = [142, 143, 144, 145, 146, 147, 148]
         self.silph_co_maps = [181, 207, 208, 209, 210, 211, 212, 213, 233, 234, 235, 236]
         self.vermilion_city_gym_map = [92]
         self.bonus_exploration_reward_maps = self.rocket_hideout_maps + self.poketower_maps + self.silph_co_maps + self.vermilion_city_gym_map + self.silph_co_maps + self.rocket_hideout_b4f_and_lift_maps + self.vermilion_city_gym_map
+        self.bonus_exploration_reward_maps = self.rocket_hideout_maps + self.poketower_maps + self.silph_co_maps + self.vermilion_city_gym_map + self.silph_co_maps + self.rocket_hideout_b4f_and_lift_maps + self.vermilion_city_gym_map
         
         self.rocket_hideout_reward_shape = [5, 6, 7, 8, 10]
         self.vermilion_city_and_gym_reward_shape = [10]
+        self.cut = 0
+        self.max_multiplier_cap = 5  # Cap for the dynamic reward multiplier
+        self.exploration_reward_cap = 2000  # Cap for the total exploration reward
+        self.initial_multiplier_value = 1  # Starting value for the multiplier
+                
         self.cut = 0
         self.max_multiplier_cap = 5  # Cap for the dynamic reward multiplier
         self.exploration_reward_cap = 2000  # Cap for the total exploration reward
@@ -462,6 +479,7 @@ class Base:
         self.milestone_keys = ["badge_1", "mt_moon_completion", "badge_2", 
                        "bill_completion", "rubbed_captains_back", 
                        "taught_cut", "used_cut_on_good_tree"]
+        self.milestone_threshold_values = [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1] # len == len(self.milestone_threshold_dict)
         self.milestone_threshold_values = [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1] # len == len(self.milestone_threshold_dict)
         self.milestone_threshold_dict = ({key: value} for key, value in zip(self.milestone_keys, self.milestone_threshold_values))
         self.default_load_threshold = 0.1 # Set a default completion % for keys that don't work
@@ -1205,6 +1223,7 @@ class Environment(Base):
         self,
         rom_path="pokemon_red.gb",
         state_path=None,
+        state_path=None,
         headless=True,
         save_video=False,
         quiet=False,
@@ -1282,9 +1301,13 @@ class Environment(Base):
         
         # Standard amount for exploration reward per new tile explored
         self.exploration_reward_increment = 0.002
+        self.exploration_reward_increment = 0.002
         # Bonus amount for exploration reward per new tile explored
         self.bonus_fixed_expl_reward_increment = 0.005
+        self.bonus_fixed_expl_reward_increment = 0.005
         self.bonus_dynamic_reward = 0
+        self.bonus_dynamic_reward_increment = 0.0003
+        self.bonus_dynamic_reward_multiplier = 0.0001
         self.bonus_dynamic_reward_increment = 0.0003
         self.bonus_dynamic_reward_multiplier = 0.0001
         
@@ -1303,6 +1326,17 @@ class Environment(Base):
         self.last_can_mem_val = -1
         self.can_reward = 0
         self.respawn = set()
+        
+        # Exploration reward capper
+        self.healthy_increases = [23, 30, 33, 37, 42, 43]
+        self.ema = 0  # Initialize the EMA at 0 for the exploration reward
+        self.last_time = 0  # To calculate intervals
+        self.smoothing = 2 / (5000000 + 1)  # Assuming a period of 5 million steps for smoothing
+        self.average_healthy_slope = self.calculate_average_slope(self.healthy_increases)
+        self.unhealthy_slope_threshold = 1.25 * self.average_healthy_slope
+        # For calculating projected healthy increase, we need a reference point in time and reward
+        self.reference_time = 0
+        self.reference_reward = self.healthy_increases[0]
         
         # Exploration reward capper
         self.healthy_increases = [23, 30, 33, 37, 42, 43]
@@ -2202,6 +2236,7 @@ class Environment(Base):
         return detailed_rewards
     
     # Pokecenter stuff (not used)
+    # Pokecenter stuff (not used)
     def update_map_id_to_furthest_visited(self):
         # Define the ordered list of map IDs from earliest to latest
         map_ids_ordered = [1, 2, 15, 3, 5, 21, 4, 6, 10, 7, 8, 9]        
@@ -2231,11 +2266,14 @@ class Environment(Base):
         if 'Lemonade' in current_bag_items:
             self.has_lemonade_in_bag = True
             self.has_lemonade_in_bag_reward = 10
+            self.has_lemonade_in_bag_reward = 10
         if 'Fresh Water' in current_bag_items:
             self.has_fresh_water_in_bag = True
             self.has_fresh_water_in_bag_reward = 10
+            self.has_fresh_water_in_bag_reward = 10
         if 'Soda Pop' in current_bag_items:
             self.has_soda_pop_in_bag = True
+            self.has_soda_pop_in_bag_reward = 10
             self.has_soda_pop_in_bag_reward = 10
         if 'Silph Scope' in current_bag_items:
             self.has_silph_scope_in_bag = True
@@ -2246,8 +2284,10 @@ class Environment(Base):
         if 'Poke Doll' in current_bag_items:
             self.has_pokedoll_in_bag = True
             self.has_pokedoll_in_bag_reward = 3
+            self.has_pokedoll_in_bag_reward = 3
         if 'Bicycle' in current_bag_items:
             self.has_bicycle_in_bag = True
+            self.has_bicycle_in_bag_reward = 0
             self.has_bicycle_in_bag_reward = 0
         
     def is_new_map(self, r, c, map_n):
@@ -2508,6 +2548,37 @@ class Environment(Base):
             self.reference_reward = ema_reward
             return ema_reward
     
+
+    def calculate_average_slope(self, increases):
+        slopes = [(increases[i] - increases[i - 1]) for i in range(1, len(increases))]
+        return sum(slopes) / len(slopes)
+    
+    def update_ema(self, reward, current_time):
+        if self.last_time == 0:  # First update
+            self.ema = reward
+        else:
+            elapsed_time = current_time - self.last_time
+            interval_smoothing = 2 / (elapsed_time + 1)
+            self.ema = (reward * interval_smoothing) + (self.ema * (1 - interval_smoothing))
+        self.last_time = current_time
+        return self.ema
+    
+    def get_adjusted_reward(self, reward, current_time):
+        ema_reward = self.update_ema(reward, current_time)
+        elapsed_time_since_reference = current_time - self.reference_time
+        # Calculate the projected healthy reward based on average healthy slope
+        projected_healthy_reward = self.reference_reward + (self.average_healthy_slope * elapsed_time_since_reference)
+        slope_from_reference = (ema_reward - self.reference_reward) / max(elapsed_time_since_reference, 1)
+        
+        if slope_from_reference > self.unhealthy_slope_threshold:
+            # If growth is unhealthy, cap the reward at the projected healthy level
+            return min(ema_reward, projected_healthy_reward)
+        else:
+            # Update reference if growth is healthy
+            self.reference_time = current_time
+            self.reference_reward = ema_reward
+            return ema_reward
+    
     def get_exploration_reward(self, map_n):
         r, c, map_n = ram_map.position(self.game)
         if self.steps_since_last_new_location >= self.step_threshold:
@@ -2517,6 +2588,8 @@ class Environment(Base):
             rew = 0
         elif map_n in self.poketower_maps and int(ram_map.read_bit(self.game, 0xD838, 7)) != 0:
             rew = (0.05 * len(self.seen_coords)) if self.used_cut < 1 else 0.13 * len(self.seen_coords)
+        elif map_n in self.poketower_maps and int(ram_map.read_bit(self.game, 0xD838, 7)) != 0:
+            rew = (0.05 * len(self.seen_coords)) if self.used_cut < 1 else 0.13 * len(self.seen_coords)
         elif map_n in self.bonus_exploration_reward_maps:
             rew = (0.05 * len(self.seen_coords)) if self.used_cut < 1 else 0.13 * len(self.seen_coords)
         else:
@@ -2524,6 +2597,46 @@ class Environment(Base):
         self.exploration_reward = rew + self.bonus_dynamic_reward
         self.exploration_reward += self.shaped_exploration_reward
         self.seen_coords.add((r, c, map_n))
+        self.exploration_reward = self.get_adjusted_reward(self.exploration_reward, self.time)
+    
+    def get_location_shaped_reward(self):
+        r, c, map_n = ram_map.position(self.game)
+        current_location = (r, c, map_n)
+        # print(f'cur_loc={current_location}')
+        if map_n in self.fixed_bonus_expl_maps: # map_n eligible for a fixed bonus reward?
+            bonus_fixed_increment = self.fixed_bonus_expl_maps[map_n] # fixed additional reward from dict
+            self.shaped_exploration_reward = bonus_fixed_increment
+            if current_location not in self.dynamic_bonus_expl_seen_coords: # start progress monitoring on eligible map_n 
+                # print(f'current_location={current_location}')
+                # print(f'self.dynamic_bonus_expl_seen_coords={self.dynamic_bonus_expl_seen_coords}')
+                self.dynamic_bonus_expl_seen_coords.add(current_location) # add coords if unseen
+                self.steps_since_last_new_location = 0
+            else:
+                self.steps_since_last_new_location += 1
+                # print(f'incremented self.steps_since_last_new_location by 1 ({self.steps_since_last_new_location})')
+        else:
+            self.shaped_exploration_reward = 0
+   
+    # def get_exploration_reward_v2(self, map_n):
+    #     r, c, map_n = ram_map.position(self.game)
+    #     if self.steps_since_last_new_location >= self.step_threshold:
+    #         # Implementing a cap on the bonus_dynamic_reward_multiplier to prevent it from growing indefinitely
+    #         self.bonus_dynamic_reward_multiplier = min(self.bonus_dynamic_reward_multiplier + self.bonus_dynamic_reward_increment, self.max_multiplier_cap)
+    #     self.bonus_dynamic_reward = self.bonus_dynamic_reward_multiplier * len(self.dynamic_bonus_expl_seen_coords)
+    #     if map_n in self.poketower_maps and int(ram_map.read_bit(self.game, 0xD838, 7)) == 0:
+    #         rew = 0
+    #     elif map_n in self.bonus_exploration_reward_maps:
+    #         rew = (0.05 * len(self.seen_coords)) if self.used_cut < 1 else 0.13 * len(self.seen_coords)
+    #     else:
+    #         rew = (0.02 * len(self.seen_coords)) if self.used_cut < 1 else 0.1 * len(self.seen_coords)
+    #     self.exploration_reward = rew + self.bonus_dynamic_reward
+    #     self.exploration_reward += self.shaped_exploration_reward
+    #     # Cap the exploration_reward to prevent it from becoming too large
+    #     self.exploration_reward = min(self.exploration_reward, self.exploration_reward_cap)
+    #     self.seen_coords.add((r, c, map_n))
+
+
+        
         self.exploration_reward = self.get_adjusted_reward(self.exploration_reward, self.time)
     
     def get_location_shaped_reward(self):
@@ -2695,6 +2808,7 @@ class Environment(Base):
         self.max_level_sum = 0
         self.max_opponent_level = 0
         self.seen_coords = set() # self.seen_coords.add((r, c, map_n))
+        self.seen_coords = set() # self.seen_coords.add((r, c, map_n))
         self.seen_maps = set()
         self.death_count_per_episode = 0
         self.total_healing = 0
@@ -2702,6 +2816,7 @@ class Environment(Base):
         self.last_party_size = 1
         self.hm_count = 0
         self.cut = 0
+        # self.used_cut = 0 # don't reset, for tracking
         # self.used_cut = 0 # don't reset, for tracking
         self.cut_coords = {}
         self.cut_tiles = {}
@@ -2772,11 +2887,29 @@ class Environment(Base):
         self.initial_multiplier_value = 1
         self.bonus_dynamic_reward_multiplier = self.initial_multiplier_value  # Reset the dynamic bonus multiplier
         self.steps_since_last_new_location = 0  # Reset step counter for new locations
+        self.initial_multiplier_value = 1
+        self.bonus_dynamic_reward_multiplier = self.initial_multiplier_value  # Reset the dynamic bonus multiplier
+        self.steps_since_last_new_location = 0  # Reset step counter for new locations
         self.exploration_reward = 0
+        
         
         return self.render(), {}
 
     def step(self, action, fast_video=True):
+
+
+        # if self.time % 24480 == 0:
+        #     # Log each environment's shared data
+        #     for self.env_id, data in self.shared_data.items():
+        #         # Prepare a string representation of the environment's shared data
+        #         self.data_str = json.dumps(data, indent=4)
+        #         # Write the environment ID and its shared data to the log
+        #                 # Example of a log message
+        #         print(f"env_id: {self.env_id}; step: {self.time}; self.data_str={self.data_str}")
+        
+
+       
+        
 
 
         # if self.time % 24480 == 0:
@@ -2945,6 +3078,8 @@ class Environment(Base):
 
         # # Share data for milestone completion % assessment
         # self.assess_milestone_completion_percentages()
+        # # Share data for milestone completion % assessment
+        # self.assess_milestone_completion_percentages()
         
         
         # Final reward calculation
@@ -2959,6 +3094,14 @@ class Environment(Base):
         
         # if done:
         #     self.save_state()
+        if done or self.time % 10000 == 0: 
+            # Get the shared dict for all envs for infos reporting
+            # if self.env_id == 0:
+            #     with Base.lock:
+            #         self.shared_data_local = self.shared_data
+            # else:
+            #     self.shared_data_local = {}
+                     
         if done or self.time % 10000 == 0: 
             # Get the shared dict for all envs for infos reporting
             # if self.env_id == 0:
@@ -3056,6 +3199,15 @@ class Environment(Base):
                     'local_completion_percentage': self.local_completion_percentage,
                     
                                     
+                    'got_hitmonchan': self.got_hitmonchan,  
+                    'self.bonus_dynamic_reward_multiplier': self.bonus_dynamic_reward_multiplier,
+                    'self.bonus_dynamic_reward_increment': self.bonus_dynamic_reward_increment,
+                    'len(self.dynamic_bonus_expl_seen_coords)': len(self.dynamic_bonus_expl_seen_coords),
+                    'len(self.seen_coords)': len(self.seen_coords),
+                    'self.milestones': self.milestones,
+                    'local_completion_percentage': self.local_completion_percentage,
+                    
+                                    
                     "silph_co_events_aggregate": {
                         **ram_map_leanke.monitor_silph_co_events(self.game),
                     },
@@ -3122,6 +3274,9 @@ class Environment(Base):
                     "has_bicycle_in_bag_reward": self.has_bicycle_in_bag_reward,
                     "respawn_reward": self.len_respawn_reward,
                     "celadon_tree_reward": self.celadon_tree_reward,
+                    "self.bonus_dynamic_reward": self.bonus_dynamic_reward,
+                    "self.shaped_exploration_reward": self.shaped_exploration_reward,
+                    
                     "self.bonus_dynamic_reward": self.bonus_dynamic_reward,
                     "self.shaped_exploration_reward": self.shaped_exploration_reward,
                     
@@ -3236,6 +3391,7 @@ class Environment(Base):
         #        self.gym5_events_reward + self.gym6_events_reward + 
         #        self.gym7_events_reward)
 
+        # self.compute_and_print_rewards(self.event_reward, self.bill_capt_reward, self.seen_pokemon_reward, self.caught_pokemon_reward, self.moves_obtained_reward, self.bill_reward, self.hm_reward, self.level_reward, self.death_reward, self.badges_reward, self.healing_reward, self.exploration_reward, self.cut_reward, self.that_guy_reward, self.cut_coords_reward, self.cut_tiles_reward, self.tree_distance_reward, self.dojo_reward, self.hideout_reward, self.has_lemonade_in_bag_reward, self.has_silph_scope_in_bag_reward, self.has_lift_key_in_bag_reward, self.has_pokedoll_in_bag_reward, self.has_bicycle_in_bag_reward, special_location_reward, self.can_reward)  
         # self.compute_and_print_rewards(self.event_reward, self.bill_capt_reward, self.seen_pokemon_reward, self.caught_pokemon_reward, self.moves_obtained_reward, self.bill_reward, self.hm_reward, self.level_reward, self.death_reward, self.badges_reward, self.healing_reward, self.exploration_reward, self.cut_reward, self.that_guy_reward, self.cut_coords_reward, self.cut_tiles_reward, self.tree_distance_reward, self.dojo_reward, self.hideout_reward, self.has_lemonade_in_bag_reward, self.has_silph_scope_in_bag_reward, self.has_lift_key_in_bag_reward, self.has_pokedoll_in_bag_reward, self.has_bicycle_in_bag_reward, special_location_reward, self.can_reward)  
 
 ###########################################################################################
