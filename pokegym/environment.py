@@ -269,9 +269,10 @@ class Base:
         self.hideout_seen_coords = {(16, 12, 201), (17, 9, 201), (24, 19, 201), (15, 12, 201), (23, 13, 201), (18, 10, 201), (22, 15, 201), (25, 19, 201), (20, 19, 201), (14, 12, 201), (22, 13, 201), (25, 15, 201), (21, 19, 201), (22, 19, 201), (13, 11, 201), (16, 9, 201), (25, 14, 201), (13, 13, 201), (25, 18, 201), (16, 11, 201), (23, 19, 201), (18, 9, 201), (25, 16, 201), (18, 11, 201), (22, 14, 201), (19, 19, 201), (18, 19, 202), (25, 13, 201), (13, 10, 201), (24, 13, 201), (13, 12, 201), (25, 17, 201), (16, 10, 201), (13, 14, 201)}
         self.cut_coords = {}
         self.cut_tiles = 0
+        self.milestones = {}
         self.completed_milestones = []
-        self.current_time = datetime.now()        
-                
+        self.current_time = datetime.now()      
+
         # Dynamic progress detection / rewarding
         self.last_progress_step = 0  # Step at which the last progression was made
         self.current_step = 0  # Current step in the training process
@@ -447,7 +448,9 @@ class Base:
         self.rocket_hideout_maps = [199, 200, 201, 202, 203]
         self.poketower_maps = [142, 143, 144, 145, 146, 147, 148]
         self.vermilion_city_gym_map = [92]
-        self.bonus_exploration_reward_maps = self.rocket_hideout_maps + self.poketower_maps + self.silph_co_maps + self.vermilion_city_gym_map + self.silph_co_maps + self.rocket_hideout_b4f_and_lift_maps + self.vermilion_city_gym_map
+        
+        
+        
         self.bonus_exploration_reward_maps = self.rocket_hideout_maps + self.poketower_maps + self.silph_co_maps + self.vermilion_city_gym_map + self.silph_co_maps + self.rocket_hideout_b4f_and_lift_maps + self.vermilion_city_gym_map
         
         self.rocket_hideout_reward_shape = [5, 6, 7, 8, 10]
@@ -1503,7 +1506,6 @@ class Environment(Base):
         self.total_healing_rew = 0
         self.last_health = 1
         
-        self.poketower = [142, 143, 144, 145, 146, 147, 148]
         self.pokehideout = [199, 200, 201, 202, 203]
         self.saffron_city = [10, 70, 76, 178, 180, 182]
         self.fighting_dojo = [177]
@@ -1589,7 +1591,9 @@ class Environment(Base):
         # self.moves_obtained = np.zeros(0xA5, dtype=np.uint8)
         self.badge_2_checkpoint = 0
         self.saved_bill_checkpoint = 0    
-    
+        self.silph_co_events_status = []
+        
+        
     def read_hp_fraction(self):
         hp_sum = sum([ram_map.read_hp(self.game, add) for add in [0xD16C, 0xD198, 0xD1C4, 0xD1F0, 0xD21C, 0xD248]])
         max_hp_sum = sum([ram_map.read_hp(self.game, add) for add in [0xD18D, 0xD1B9, 0xD1E5, 0xD211, 0xD23D, 0xD269]])
@@ -2450,8 +2454,8 @@ class Environment(Base):
             self.has_pokedoll_in_bag_reward = 3
         if 'Bicycle' in current_bag_items:
             self.has_bicycle_in_bag = True
-            self.has_bicycle_in_bag_reward = 0
-            self.has_bicycle_in_bag_reward = 0
+            self.has_bicycle_in_bag_reward = 1
+            self.has_bicycle_in_bag_reward = 1
         
     def is_new_map(self, r, c, map_n):
         self.update_heat_map(r, c, map_n)
@@ -2460,7 +2464,7 @@ class Environment(Base):
             self.prev_map_n = map_n
             self.add_map(map_n)
             if map_n not in self.seen_maps:
-                self.save_all_states_v3()
+                # self.save_all_states_v3()
                 self.seen_maps.add(map_n)
             # self.save_state()
         
@@ -2742,66 +2746,98 @@ class Environment(Base):
             self.reference_time = current_time
             self.reference_reward = ema_reward
             return ema_reward
+    ##########################
+    ### WORKING
+    # def get_exploration_reward(self, map_n):
+    #     r, c, map_n = ram_map.position(self.game)
+    #     if self.steps_since_last_new_location >= self.step_threshold:
+    #         self.bonus_dynamic_reward_multiplier += self.bonus_dynamic_reward_increment
+    #     self.bonus_dynamic_reward = self.bonus_dynamic_reward_multiplier * len(self.dynamic_bonus_expl_seen_coords)    
+    #     if map_n in self.poketower_maps and int(ram_map.read_bit(self.game, 0xD838, 7)) == 0:
+    #         rew = 0
+    #     elif map_n in self.poketower_maps and int(ram_map.read_bit(self.game, 0xD838, 7)) != 0:
+    #         rew = (0.05 * len(self.seen_coords)) if self.used_cut < 1 else 0.13 * len(self.seen_coords)
+    #     elif map_n in self.poketower_maps and int(ram_map.read_bit(self.game, 0xD838, 7)) != 0:
+    #         rew = (0.05 * len(self.seen_coords)) if self.used_cut < 1 else 0.13 * len(self.seen_coords)
+    #     elif map_n in self.bonus_exploration_reward_maps:
+    #         rew = (0.05 * len(self.seen_coords)) if self.used_cut < 1 else 0.13 * len(self.seen_coords)
+    #     else:
+    #         rew = (0.02 * len(self.seen_coords)) if self.used_cut < 1 else 0.1 * len(self.seen_coords)
+    #     self.exploration_reward = rew + self.bonus_dynamic_reward
+    #     self.exploration_reward += self.shaped_exploration_reward
+    #     self.seen_coords.add((r, c, map_n))
+    #     self.exploration_reward = self.get_adjusted_reward(self.exploration_reward, self.time)
+    #############################
     
+    # Gives slight negative rewards to envs that have completed the conditionals    
+    # Currently a work-in-progress
+    # def leave_location_after_quest_complete(self):
+    #     r, c, map_n = ram_map.position(self.game)
+    #     if map_n in self.silph_co_maps and :
+            # silph_progress = ram_map_leanke.monitor_silph_co_events(self.game)
+            # beat_giovanni = silph_progress["beat_silph_co_giovanni"]
+        
+    def leave_location_after_quest_complete(self):
+        r, c, map_n = ram_map.position(self.game)
+        completed = False  # Default to not completed
+        # Check specific quests based on location and update milestone completion status
+        if map_n in self.silph_co_maps:
+            self.silph_progress = ram_map_leanke.monitor_silph_co_events(self.game)
+            if self.silph_progress["beat_silph_co_giovanni"] > 0:
+                completed = True
+
+        elif map_n == 45 and self.badges >= 3:
+            completed = True
+        elif map_n == 134 and self.badges >= 4:
+            completed = True
+        elif map_n == 54 and self.badges >= 1:
+            completed = True
+        elif map_n == 88 and ram_map.read_bit(self.game, 0xD7F2, 7) == 1:  # Bill's quest completed
+            completed = True
+        # Adjust exploration rewards based on the completion status
+        if completed:
+            # Reset exploration reward to slightly negative to incentivize leaving the area
+            self.exploration_reward = -0.01
+            print(f"Quest completed at {map_n}, negative exploration reward applied.")
+        else:
+            # Call normal exploration reward function if the quest is not completed
+            self.get_exploration_reward(map_n)
+
     def get_exploration_reward(self, map_n):
         r, c, map_n = ram_map.position(self.game)
         if self.steps_since_last_new_location >= self.step_threshold:
             self.bonus_dynamic_reward_multiplier += self.bonus_dynamic_reward_increment
-        self.bonus_dynamic_reward = self.bonus_dynamic_reward_multiplier * len(self.dynamic_bonus_expl_seen_coords)    
-        if map_n in self.poketower_maps and int(ram_map.read_bit(self.game, 0xD838, 7)) == 0:
-            rew = 0
-        elif map_n in self.poketower_maps and int(ram_map.read_bit(self.game, 0xD838, 7)) != 0:
-            rew = (0.05 * len(self.seen_coords)) if self.used_cut < 1 else 0.13 * len(self.seen_coords)
-        elif map_n in self.poketower_maps and int(ram_map.read_bit(self.game, 0xD838, 7)) != 0:
-            rew = (0.05 * len(self.seen_coords)) if self.used_cut < 1 else 0.13 * len(self.seen_coords)
+        self.bonus_dynamic_reward = self.bonus_dynamic_reward_multiplier * len(self.dynamic_bonus_expl_seen_coords)         
+        if map_n in self.poketower_maps:
+            reward = (0.05 * len(self.seen_coords)) if self.used_cut < 1 else 0.13 * len(self.seen_coords)
         elif map_n in self.bonus_exploration_reward_maps:
-            rew = (0.05 * len(self.seen_coords)) if self.used_cut < 1 else 0.13 * len(self.seen_coords)
+            reward = (0.05 * len(self.seen_coords)) if self.used_cut < 1 else 0.13 * len(self.seen_coords)
         else:
-            rew = (0.02 * len(self.seen_coords)) if self.used_cut < 1 else 0.1 * len(self.seen_coords)
-        self.exploration_reward = rew + self.bonus_dynamic_reward
-        self.exploration_reward += self.shaped_exploration_reward
+            reward = (0.02 * len(self.seen_coords)) if self.used_cut < 1 else 0.1 * len(self.seen_coords)
+        self.exploration_reward = reward + self.bonus_dynamic_reward
+        self.shaped_exploration_reward = self.get_location_shaped_reward()
         self.seen_coords.add((r, c, map_n))
         self.exploration_reward = self.get_adjusted_reward(self.exploration_reward, self.time)
-    
+
     def get_location_shaped_reward(self):
         r, c, map_n = ram_map.position(self.game)
-        current_location = (r, c, map_n)
-        # print(f'cur_loc={current_location}')
-        if map_n in self.fixed_bonus_expl_maps: # map_n eligible for a fixed bonus reward?
-            bonus_fixed_increment = self.fixed_bonus_expl_maps[map_n] # fixed additional reward from dict
-            self.shaped_exploration_reward = bonus_fixed_increment
-            if current_location not in self.dynamic_bonus_expl_seen_coords: # start progress monitoring on eligible map_n 
-                # print(f'current_location={current_location}')
-                # print(f'self.dynamic_bonus_expl_seen_coords={self.dynamic_bonus_expl_seen_coords}')
-                self.dynamic_bonus_expl_seen_coords.add(current_location) # add coords if unseen
-                self.steps_since_last_new_location = 0
-            else:
-                self.steps_since_last_new_location += 1
-                # print(f'incremented self.steps_since_last_new_location by 1 ({self.steps_since_last_new_location})')
+        if map_n in self.fixed_bonus_expl_maps:
+            bonus_fixed_increment = self.fixed_bonus_expl_maps[map_n]
+            shaped_exploration_reward = bonus_fixed_increment
         else:
-            self.shaped_exploration_reward = 0
-   
-    # def get_exploration_reward_v2(self, map_n):
-    #     r, c, map_n = ram_map.position(self.game)
-    #     if self.steps_since_last_new_location >= self.step_threshold:
-    #         # Implementing a cap on the bonus_dynamic_reward_multiplier to prevent it from growing indefinitely
-    #         self.bonus_dynamic_reward_multiplier = min(self.bonus_dynamic_reward_multiplier + self.bonus_dynamic_reward_increment, self.max_multiplier_cap)
-    #     self.bonus_dynamic_reward = self.bonus_dynamic_reward_multiplier * len(self.dynamic_bonus_expl_seen_coords)
-    #     if map_n in self.poketower_maps and int(ram_map.read_bit(self.game, 0xD838, 7)) == 0:
-    #         rew = 0
-    #     elif map_n in self.bonus_exploration_reward_maps:
-    #         rew = (0.05 * len(self.seen_coords)) if self.used_cut < 1 else 0.13 * len(self.seen_coords)
-    #     else:
-    #         rew = (0.02 * len(self.seen_coords)) if self.used_cut < 1 else 0.1 * len(self.seen_coords)
-    #     self.exploration_reward = rew + self.bonus_dynamic_reward
-    #     self.exploration_reward += self.shaped_exploration_reward
-    #     # Cap the exploration_reward to prevent it from becoming too large
-    #     self.exploration_reward = min(self.exploration_reward, self.exploration_reward_cap)
-    #     self.seen_coords.add((r, c, map_n))
+            shaped_exploration_reward = 0
+        return shaped_exploration_reward
 
-
+    
+    #   "badge_1", self.badges >= 1
+    #   "mt_moon_completion", 'mt_moon_key'
+    #     "badge_2", self.badges >= 2
+    #     "bill_completion", ram_map.read_bit(self.game, 0xD7F2, 7)
+    #     "rubbed_captains_back", ram_map.read_bit(self.game, 0xD803, 1)
+    #     "taught_cut", self.cut
+    #     "used_cut_on_good_tree", self.used_cut > 0
         
-        self.exploration_reward = self.get_adjusted_reward(self.exploration_reward, self.time)
+    
     
     def get_location_shaped_reward(self):
         r, c, map_n = ram_map.position(self.game)
@@ -2820,26 +2856,7 @@ class Environment(Base):
                 # print(f'incremented self.steps_since_last_new_location by 1 ({self.steps_since_last_new_location})')
         else:
             self.shaped_exploration_reward = 0
-   
-    # def get_exploration_reward_v2(self, map_n):
-    #     r, c, map_n = ram_map.position(self.game)
-    #     if self.steps_since_last_new_location >= self.step_threshold:
-    #         # Implementing a cap on the bonus_dynamic_reward_multiplier to prevent it from growing indefinitely
-    #         self.bonus_dynamic_reward_multiplier = min(self.bonus_dynamic_reward_multiplier + self.bonus_dynamic_reward_increment, self.max_multiplier_cap)
-    #     self.bonus_dynamic_reward = self.bonus_dynamic_reward_multiplier * len(self.dynamic_bonus_expl_seen_coords)
-    #     if map_n in self.poketower_maps and int(ram_map.read_bit(self.game, 0xD838, 7)) == 0:
-    #         rew = 0
-    #     elif map_n in self.bonus_exploration_reward_maps:
-    #         rew = (0.05 * len(self.seen_coords)) if self.used_cut < 1 else 0.13 * len(self.seen_coords)
-    #     else:
-    #         rew = (0.02 * len(self.seen_coords)) if self.used_cut < 1 else 0.1 * len(self.seen_coords)
-    #     self.exploration_reward = rew + self.bonus_dynamic_reward
-    #     self.exploration_reward += self.shaped_exploration_reward
-    #     # Cap the exploration_reward to prevent it from becoming too large
-    #     self.exploration_reward = min(self.exploration_reward, self.exploration_reward_cap)
-    #     self.seen_coords.add((r, c, map_n))
-
-
+        self.exploration_reward = self.get_adjusted_reward(self.exploration_reward, self.time)
         
     def get_respawn_reward(self):
         center = self.game.get_memory_value(0xD719)
@@ -3045,7 +3062,7 @@ class Environment(Base):
         
         self.first = False
         state = io.BytesIO()
-        self.pyboy.save_state(state)
+        self.game.save_state(state)
         state.seek(0)
         return self.render(), {"state": state.read()}
         # return self.render(), {}
@@ -3059,6 +3076,11 @@ class Environment(Base):
             
         # Get local coordinate position and map_n
         r, c, map_n = ram_map.position(self.game)
+        # Prevent rewards abuse and encourage storyline progression
+        self.leave_location_after_quest_complete()
+        
+        
+        
         # self.save_all_states_v3()        
         ##################################################################
         # New added today BET ADDED

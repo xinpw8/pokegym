@@ -994,7 +994,7 @@ def gym4(game):
 
 def gym5(game):
    #gym 5 Fuchsia	
-    five = GYM_LEADER * int(read_bit(game, 0xD7B3, 1))
+    five = GYM_LEADER * int(read_bit(game, 0xD792, 1))
     g5_1 = GYM_TRAINER * int(read_bit(game, 0xD792, 2)) #	"0xD792-2": "Beat Fuchsia Gym Trainer 0",
     g5_2 = GYM_TRAINER * int(read_bit(game, 0xD792, 3)) #	"0xD792-3": "Beat Fuchsia Gym Trainer 1",
     g5_3 = GYM_TRAINER * int(read_bit(game, 0xD792, 4)) #	"0xD792-4": "Beat Fuchsia Gym Trainer 2",
