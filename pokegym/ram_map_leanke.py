@@ -908,6 +908,7 @@ def poke_tower(game):
   # "0xD769-1": "Beat Pokemontower 7 Trainer 0",
   # "0xD769-2": "Beat Pokemontower 7 Trainer 1",
   # "0xD769-3": "Beat Pokemontower 7 Trainer 2",
+  # "0xD7E0-7": "Rescued Mr Fuji",
   beat_pokemontower_3_trainer_0 = TRAINER * int(read_bit(game, 0xD765, 1))
   beat_pokemontower_3_trainer_1 = TRAINER * int(read_bit(game, 0xD765, 2))
   beat_pokemontower_3_trainer_2 = TRAINER * int(read_bit(game, 0xD765, 3))
@@ -926,12 +927,13 @@ def poke_tower(game):
   beat_pokemontower_7_trainer_0 = TRAINER * int(read_bit(game, 0xD769, 1))
   beat_pokemontower_7_trainer_1 = TRAINER * int(read_bit(game, 0xD769, 2))
   beat_pokemontower_7_trainer_2 = TRAINER * int(read_bit(game, 0xD769, 3))
+  rescued_mr_fuji = TASK * int(read_bit(game, 0xD7E0, 7))
 
   return sum([beat_pokemontower_3_trainer_0, beat_pokemontower_3_trainer_1, beat_pokemontower_3_trainer_2, beat_pokemontower_4_trainer_0,
     beat_pokemontower_4_trainer_1, beat_pokemontower_4_trainer_2, beat_pokemontower_5_trainer_0, beat_pokemontower_5_trainer_1,
     beat_pokemontower_5_trainer_2, beat_pokemontower_5_trainer_3, beat_pokemontower_6_trainer_0,
     beat_pokemontower_6_trainer_1, beat_pokemontower_6_trainer_2, beat_ghost_marowak, beat_pokemontower_7_trainer_0,
-    beat_pokemontower_7_trainer_1, beat_pokemontower_7_trainer_2]) # in_purified_zone,
+    beat_pokemontower_7_trainer_1, beat_pokemontower_7_trainer_2, rescued_mr_fuji]) # in_purified_zone,
 
 # BET ADDED  
 def monitor_poke_tower_events(game):
@@ -952,7 +954,8 @@ def monitor_poke_tower_events(game):
         'beat_ghost_marowak': QUEST * int(read_bit(game, 0xD768, 7)),
         'beat_pokemontower_7_trainer_0': TRAINER * int(read_bit(game, 0xD769, 1)),
         'beat_pokemontower_7_trainer_1': TRAINER * int(read_bit(game, 0xD769, 2)),
-        'beat_pokemontower_7_trainer_2': TRAINER * int(read_bit(game, 0xD769, 3))
+        'beat_pokemontower_7_trainer_2': TRAINER * int(read_bit(game, 0xD769, 3)),
+        'rescued_mr_fuji': TASK * int(read_bit(game, 0xD7E0, 7))
     }
 
     return events_status
@@ -994,7 +997,7 @@ def gym4(game):
 
 def gym5(game):
    #gym 5 Fuchsia	
-    five = GYM_LEADER * int(read_bit(game, 0xD7B3, 1))
+    five = GYM_LEADER * int(read_bit(game, 0xD792, 1))
     g5_1 = GYM_TRAINER * int(read_bit(game, 0xD792, 2)) #	"0xD792-2": "Beat Fuchsia Gym Trainer 0",
     g5_2 = GYM_TRAINER * int(read_bit(game, 0xD792, 3)) #	"0xD792-3": "Beat Fuchsia Gym Trainer 1",
     g5_3 = GYM_TRAINER * int(read_bit(game, 0xD792, 4)) #	"0xD792-4": "Beat Fuchsia Gym Trainer 2",
