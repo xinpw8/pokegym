@@ -55,11 +55,18 @@ current_dir = Path(__file__).parent
 pufferlib_dir = current_dir.parent.parent
 if str(pufferlib_dir) not in sys.path:
     sys.path.append(str(pufferlib_dir))
-import dill as pickle
+import pickle
 import datetime
 import dill
 import re
 from datetime import datetime
+import warnings
+import json
+from io import BytesIO
+
+# Suppress specific deprecation warnings
+warnings.filterwarnings('ignore', category=UserWarning, message='.*env*')
+
 
 
 CUT_GRASS_SEQ = deque([(0x52, 255, 1, 0, 1, 1), (0x52, 255, 1, 0, 1, 1), (0x52, 1, 1, 0, 1, 1)])
@@ -106,8 +113,9 @@ TREE_POSITIONS_GRID_GLOBAL = [
 
 
 PLAY_STATE_PATH = __file__.rstrip("environment.py") + "just_died_mt_moon.state" # "outside_mt_moon_hp.state" # "Bulbasaur.state" # "celadon_city_cut_test.state"
-EXPERIMENTAL_PATH = __file__.rstrip("environment.py") + "celadon_city_cut_test.state"
+GYM3PATH = __file__.rstrip("environment.py") + "at_surge_pre_badge.state"
 STATE_PATH = __file__.rstrip("environment.py") + "current_state/"
+EXPERIMENTAL_PATH = __file__.rstrip("environment.py") + "about_to_beat_brock.state"
 # print(f'TREE_POSOTIONS_CONVERTED = {TREE_POSITIONS_GRID_GLOBAL}')
 MAPS_WITH_TREES = set(map_n for _, _, map_n in TREE_POSITIONS_PIXELS)
 TREE_COUNT_PER_MAP = {6: 2, 134: 3, 13: 5, 1: 2, 5: 1, 36: 1, 20: 1, 21: 4}
@@ -118,7 +126,7 @@ def play():
     """Creates an environment and plays it"""
     env = Environment(
         rom_path="pokemon_red.gb",
-        state_path=EXPERIMENTAL_PATH,
+        state_path=None,
         headless=False,
         disable_input=False,
         sound=False,
@@ -127,7 +135,7 @@ def play():
     )
 
     # Update pokemap visualizer text here
-    env = StreamWrapper(env, stream_metadata={"user": "boucybet |BET| test\n"})
+    # env = StreamWrapper(env, stream_metadata={"user": "boucybet |BET| test\n"})
     env.reset()
     env.game.set_emulation_speed(0)
 
@@ -217,6 +225,16 @@ class Base:
         """Creates a PokemonRed environment"""
         if state_path is None:
             state_path = STATE_PATH + "Bulbasaur.state"
+            # for env in range(48):
+            #     if self.env_id == env:
+            #         state_path = EXPERIMENTAL_PATH
+            #         break
+            #     else:
+            #         state_path = STATE_PATH + "Bulbasaur.state" # state_path = EXPERIMENTAL_PATH if self.env_id != 1 else GYM3PATH #
+        # TESTING BET ADDED
+        # if self.env_id == 1:
+        #     state_path = STATE_PATH + "cut2.state"
+            
         self.game, self.screen = make_env(rom_path, headless, quiet, save_video=False, **kwargs)
         self.initial_states = [open_state_file(state_path)]
         self.save_video = save_video
@@ -232,6 +250,8 @@ class Base:
         self.routes_9_and_10_and_rock_tunnel = [20, 21, 82, 232]
         self.vermilion_city_gym_map = [92]
         self.bonus_exploration_reward_maps = self.rocket_hideout_maps + self.poketower_maps + self.silph_co_maps + self.vermilion_city_gym_map
+        self.leave_location_maps = self.bonus_exploration_reward_maps + [54] + [65] + [92] + [134] + [88]
+        
         self.rocket_hideout_reward_shape = [5, 6, 7, 8, 10]
         self.vermilion_city_and_gym_reward_shape = [10]
         self.cut = 0
@@ -263,12 +283,6 @@ class Base:
         self.milestones = {}
         self.completed_milestones = []
         self.current_time = datetime.now()      
-        
-        # More dynamic rewards stuff
-        self.seen_coords_specific_maps = set()
-        self.steps_since_last_new_location = 0
-        self.recent_frames = []
-        self.agent_stats = {}
         self.has_lemonade_in_bag_reward = 0
         
         # Initialization of dir structure
@@ -303,6 +317,9 @@ class Base:
         else:
             exp_name = None
 
+        self.percent_complete_file_path = latest_experiment_dir / "required_resources" / "percent_complete.txt"
+        self.eviction_trigger_fractions_path = latest_experiment_dir / "required_resources" / "eviction_trigger_fractions.json"
+        self.eviction_penalty_file_path = latest_experiment_dir / "required_resources" / "eviction_penalty.json"
         self.exp_path = Path(f'experiments/{str(exp_name)}')
         self.s_path = Path(f'{str(self.exp_path)}/sessions/{str(self.env_id)}')
         self.s_path.mkdir(parents=True, exist_ok=True)
@@ -318,11 +335,11 @@ class Base:
         
         # Set up logging
         self.logger = logging.getLogger(f'')
-        self.logger.setLevel(logging.DEBUG)  # Set the base level to debug
+        self.logger.setLevel(logging.INFO)  # Set the base level to debug
         
         # Create file handler which logs even debug messages
         self.fh = logging.FileHandler(self.log_file_path, mode='w')
-        self.fh.setLevel(logging.DEBUG)  # Set the file handler's level
+        self.fh.setLevel(logging.INFO)  # Set the file handler's level
 
         # Create formatter and add it to the handler
         self.formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
@@ -434,13 +451,6 @@ class Base:
         self.vermilion_city_gym_map = [92]
     
         self.bonus_exploration_reward_maps = self.rocket_hideout_maps + self.silph_co_maps + self.vermilion_city_gym_map + self.silph_co_maps + self.rocket_hideout_b4f_and_lift_maps + self.vermilion_city_gym_map
-        
-        self.rocket_hideout_reward_shape = [5, 6, 7, 8, 10]
-        self.vermilion_city_and_gym_reward_shape = [10]
-        self.cut = 0
-        self.max_multiplier_cap = 5  # Cap for the dynamic reward multiplier
-        self.exploration_reward_cap = 2000  # Cap for the total exploration reward
-        self.initial_multiplier_value = 1  # Starting value for the multiplier
                 
         # Dynamic progress detection / rewarding
         self.last_progress_step = 0  # Step at which the last progression was made
@@ -468,7 +478,110 @@ class Base:
         self.overall_progress = {}
         self.actions_required = {}
         self.selected_files = {}
-
+        
+        # State loading
+        self.badge_0_states = None
+        self.badge_1_states = None
+        self.badge_2_states = None        
+        self.badge_3_states = None        
+        self.badge_4_states = None        
+        self.badge_5_states = None        
+        self.badge_6_states = None        
+        self.badge_7_states = None        
+        self.badge_8_states = None        
+                
+        self.badge_1_states_saved = False
+        self.badge_2_states_saved = False
+        self.badge_3_states_saved = False
+        self.badge_4_states_saved = False
+        self.badge_5_states_saved = False
+        self.badge_6_states_saved = False
+        self.badge_7_states_saved = False
+        self.badge_8_states_saved = False
+        self.leave_location_active = False
+        self.map_40_states_saved = False
+        self.map_0_states_saved = False
+        self.map_6_states_saved = False
+        self.flag = False
+        self.badge_completion_percentage = 0
+        self.silph_co_completed = False
+        self.pokemon_tower_completed = False
+        self.rocket_hideout_completed = False
+        self.bill_completed = False
+        self.badge_1_completed = False
+        self.badge_2_completed = False        
+        self.badge_3_completed = False
+        self.badge_4_completed = False       
+        self.completion_list = [self.silph_co_completed,
+                                self.pokemon_tower_completed,
+                                self.rocket_hideout_completed,
+                                self.bill_completed,
+                                self.badge_1_completed,
+                                self.badge_2_completed,        
+                                self.badge_3_completed,
+                                self.badge_4_completed]     
+        self.last_badge = 0    
+        self.saved_state_and_pkl = {}
+        self.moves_obtained = {}
+        self.saves_for_reset = {}
+        self.previous_completion_data = {
+                                "badge_1": 0.0,
+                                "badge_2": 0.0,
+                                "badge_3": 0.0,
+                                "badge_4": 0.0,
+                                "badge_5": 0.0,
+                                "badge_6": 0.0,
+                                "badge_7": 0.0,
+                                "badge_8": 0.0,
+                                "bill_saved": 0.0,
+                                "beat_rocket_hideout_giovanni": 0.0,
+                                "rescued_mr_fuji": 0.0,
+                                "beat_silph_co_giovanni": 0.0
+                            }
+        self.eviction_trigger_dict = {"badge_1": 0.9,
+                                        "badge_2": 0.8,
+                                        "badge_3": 0.5,
+                                        "badge_4": 0.2,
+                                        "badge_5": 0.1,
+                                        "badge_6": 0.1,
+                                        "badge_7": 0.1,
+                                        "badge_8": 0.1,
+                                        "bills_house": 0.7,
+                                        "rocket_hideout": 0.4,
+                                        "pokemon_tower": 0.2,
+                                        "silph_co": 0.1,
+                                        }
+        self.steps_for_conditions = {
+            "badge_1": 0,
+            "badge_2": 0,
+            "badge_3": 0,
+            "badge_4": 0,
+            "bill_saved": 0,
+            "rocket_hideout": 0,
+            "pokemon_tower": 0,
+            "silph_co": 0
+        }
+        self.percent_complete_backup = {
+                                        "badge_1": 0.0,
+                                        "badge_2": 0.0,
+                                        "badge_3": 0.0,
+                                        "badge_4": 0.0,
+                                        "badge_5": 0.0,
+                                        "badge_6": 0.0,
+                                        "badge_7": 0.0,
+                                        "badge_8": 0.0,
+                                        "bill_saved": 0.0,
+                                        "beat_rocket_hideout_giovanni": 0.0,
+                                        "rescued_mr_fuji": 0.0,
+                                        "beat_silph_co_giovanni": 0.0
+                                    }
+        
+        self.threshold_steps = 20480  # Set the threshold for blackout for eviction fn
+        self.max_hp_before = 26 # default value for starting bulbasaur
+        self.hp_before = 26
+        self.saved_state_and_pkl = {}
+        self.new_save_state = False
+        
     def save_screenshot(self, event, map_n):
         self.screenshot_counter += 1
         ss_dir = Path('screenshots')
@@ -781,7 +894,7 @@ class Environment(Base):
         self.init_hidden_obj_mem()
         self.seen_pokemon = np.zeros(152, dtype=np.uint8)
         self.caught_pokemon = np.zeros(152, dtype=np.uint8)
-        self.moves_obtained = np.zeros(0xA5, dtype=np.uint8)
+        self.moves_obtained = {} # np.zeros(0xA5, dtype=np.uint8)
         self.log = False
         self.pokecenter_ids = [0x01, 0x02, 0x03, 0x0F, 0x15, 0x05, 0x06, 0x04, 0x07, 0x08, 0x0A, 0x09]
         self.visited_pokecenter_list = []
@@ -916,27 +1029,29 @@ class Environment(Base):
                 self.seen_pokemon[8*i + j] = 1 if seen_mem & (1 << j) else 0   
     
     def update_moves_obtained(self):
-        # Scan party and update self.cut if cut is obtained
-        for i in [0xD16B, 0xD197, 0xD1C3, 0xD1EF, 0xD21B, 0xD247]:
-            if self.game.get_memory_value(i) != 0:
-                for j in range(4):
-                    move_id = self.game.get_memory_value(i + j + 8)
-                    if move_id != 0:
+        try:
+            # Scan party and update self.cut if cut is obtained
+            for i in [0xD16B, 0xD197, 0xD1C3, 0xD1EF, 0xD21B, 0xD247]:
+                if self.game.get_memory_value(i) != 0:
+                    for j in range(4):
+                        move_id = self.game.get_memory_value(i + j + 8)
+                        if move_id != 0:
+                            if move_id != 0:
+                                self.moves_obtained[move_id] = 1
+                            if move_id == 15:
+                                self.cut = 1
+            # Scan current box (since the box doesn't auto increment in pokemon red)
+            num_moves = 4
+            box_struct_length = 25 * num_moves * 2
+            for i in range(self.game.get_memory_value(0xda80)):
+                offset = i*box_struct_length + 0xda96
+                if self.game.get_memory_value(offset) != 0:
+                    for j in range(4):
+                        move_id = self.game.get_memory_value(offset + j + 8)
                         if move_id != 0:
                             self.moves_obtained[move_id] = 1
-                        if move_id == 15:
-                            self.cut = 1
-        # Scan current box (since the box doesn't auto increment in pokemon red)
-        num_moves = 4
-        box_struct_length = 25 * num_moves * 2
-        for i in range(self.game.get_memory_value(0xda80)):
-            offset = i*box_struct_length + 0xda96
-            if self.game.get_memory_value(offset) != 0:
-                for j in range(4):
-                    move_id = self.game.get_memory_value(offset + j + 8)
-                    if move_id != 0:
-                        self.moves_obtained[move_id] = 1
-                        
+        except Exception as e:
+            print(f'ENV_{self.env_id}: update_moves_obtained() failed!! Here is why: {e}')
     def get_items_in_bag(self, one_indexed=0):
         first_item = 0xD31E
         # total 20 items
@@ -1053,62 +1168,12 @@ class Environment(Base):
             and ram_map.mem_val(self.game, 0xCF94) == 3
             and ram_map.mem_val(self.game, 0xD31D) == ram_map.mem_val(self.game, 0xCC36) + ram_map.mem_val(self.game, 0xCC26)
         )
-        
-    def update_reward(self, new_position):
-        """
-        Update and determine if the new_position should be rewarded based on every 10 steps
-        taken within the same map considering the Manhattan distance.
-
-        :param new_position: Tuple (glob_r, glob_c, map_n) representing the new global position and map identifier.
-        """
-        should_reward = False
-        new_glob_r, new_glob_c, new_map_n = new_position
-
-        # Check if the new position should be rewarded compared to existing positions on the same map
-        for rewarded_position in self.rewarded_coords:
-            rewarded_glob_r, rewarded_glob_c, rewarded_map_n = rewarded_position
-            if new_map_n == rewarded_map_n:
-                distance = abs(rewarded_glob_r - new_glob_r) + abs(rewarded_glob_c - new_glob_c)
-                if distance >= 10:
-                    should_reward = True
-                    break
-
-        if should_reward:
-            self.rewarded_coords.add(new_position)
             
     def check_bag_for_silph_scope(self):
         if 0x4A in self.get_items_in_bag():
             if 0x48 in self.get_items_in_bag():
                 self.have_silph_scope = True
                 return self.have_silph_scope
-            
-    def current_coords(self):
-        return self.last_10_coords[0]
-    
-    def current_map_id(self):
-        return self.last_10_map_ids[0, 0]
-    
-    def update_seen_map_dict(self):
-        # if self.get_minimap_warp_obs()[4, 4] != 0:
-        #     return
-        cur_map_id = self.current_map_id() - 1
-        x, y = self.current_coords()
-        if cur_map_id not in self.seen_map_dict:
-            self.seen_map_dict[cur_map_id] = np.zeros((MAP_DICT[MAP_ID_REF[cur_map_id]]['height'], MAP_DICT[MAP_ID_REF[cur_map_id]]['width']), dtype=np.float32)
-            
-        # do not update if is warping
-        if not self.is_warping:
-            if y >= self.seen_map_dict[cur_map_id].shape[0] or x >= self.seen_map_dict[cur_map_id].shape[1]:
-                self.stuck_cnt += 1
-                # print(f'ERROR1: x: {x}, y: {y}, cur_map_id: {cur_map_id} ({MAP_ID_REF[cur_map_id]}), map.shape: {self.seen_map_dict[cur_map_id].shape}')
-                if self.stuck_cnt > 50:
-                    print(f'stucked for > 50 steps, force ES')
-                    self.early_done = True
-                    self.stuck_cnt = 0
-                # print(f'ERROR2: last 10 map ids: {self.last_10_map_ids}')
-            else:
-                self.stuck_cnt = 0
-                self.seen_map_dict[cur_map_id][y, x] = self.time
 
     def get_badges(self):
         badge_count = ram_map.bit_count(ram_map.mem_val(self.game, 0xD356))
@@ -1133,10 +1198,6 @@ class Environment(Base):
                 if ram_map.read_bit(self.game, addr_bit[0], addr_bit[1]):
                     elite_4_extra_badges += 1
             return 8 + elite_4_extra_badges
-
-    def get_levels_sum(self):
-        poke_levels = [max(ram_map.mem_val(self.game, a) - 2, 0) for a in [0xD18C, 0xD1B8, 0xD1E4, 0xD210, 0xD23C, 0xD268]]
-        return max(sum(poke_levels) - 4, 0) # subtract starting pokemon level
     
     def read_event_bits(self):
         return [
@@ -1151,45 +1212,9 @@ class Environment(Base):
     def update_num_poke(self):
         self.last_num_poke = self.read_num_poke()
     
-    def get_max_n_levels_sum(self, n, max_level):
-        num_poke = self.read_num_poke()
-        poke_level_addresses = [0xD18C, 0xD1B8, 0xD1E4, 0xD210, 0xD23C, 0xD268]
-        poke_levels = [max(min(ram_map.mem_val(self.game, a), max_level) - 2, 0) for a in poke_level_addresses[:num_poke]]
-        return max(sum(sorted(poke_levels)[-n:]) - 4, 0)
-    
     @property
     def is_in_elite_4(self):
         return self.current_map_id - 1 in [0xF5, 0xF6, 0xF7, 0x71, 0x78]
-    
-    def get_levels_reward(self):
-        if not self.level_reward_badge_scale:
-            level_sum = self.get_levels_sum()
-            self.max_level_rew = max(self.max_level_rew, level_sum)
-        else:
-            badge_count = min(self.get_badges(), 8)
-            gym_next = self.gym_info[badge_count]
-            gym_num_poke = gym_next['num_poke']
-            gym_max_level = gym_next['max_level'] * self.level_reward_badge_scale
-            self.level_reward = self.get_max_n_levels_sum(gym_num_poke, gym_max_level)  # changed, level reward for all 6 pokemon
-            if badge_count >= 7 and self.level_reward > self.max_level_rew and not self.is_in_elite_4:
-                level_diff = self.level_reward - self.max_level_rew
-                if level_diff > 6 and self.party_level_post == 0:
-                    # self.party_level_post = 0
-                    pass
-                else:
-                    self.party_level_post += level_diff
-            self.max_level_rew = max(self.max_level_rew, self.level_reward)
-        return ((self.max_level_rew - self.party_level_post) * 0.5) + (self.party_level_post * 2.0)
-        # return self.max_level_rew * 0.5  # 11/11-3 changed: from 0.5 to 1.0
-    
-    def get_special_key_items_reward(self):
-        items = self.get_items_in_bag()
-        special_cnt = 0
-        # SPECIAL_KEY_ITEM_IDS
-        for item_id in SPECIAL_KEY_ITEM_IDS:
-            if item_id in items:
-                special_cnt += 1
-        return special_cnt * 1.0
     
     def get_all_events_reward(self):
         # adds up all event flags, exclude museum ticket
@@ -1204,20 +1229,7 @@ class Environment(Base):
             - int(ram_map.read_bit(self.game, *ram_map.MUSEUM_TICKET_ADDR)),
             0,
         )
-        
-    def update_max_event_rew(self):
-        cur_rew = self.get_all_events_reward()
-        self.max_event_rew = max(cur_rew, self.max_event_rew)
-        return self.max_event_rew
-    
-    def update_max_op_level(self):
-        #opponent_level = ram_map.mem_val(self.game, 0xCFE8) - 5 # base level
-        opponent_level = max([ram_map.mem_val(self.game, a) for a in [0xD8C5, 0xD8F1, 0xD91D, 0xD949, 0xD975, 0xD9A1]]) - 5
-        #if opponent_level >= 7:
-        #    self.save_screenshot('highlevelop')
-        self.max_opponent_level = max(self.max_opponent_level, opponent_level)
-        return self.max_opponent_level * 0.1  # 0.1
-    
+
     def get_badges_reward(self):
         num_badges = self.get_badges()
         # if num_badges < 3:
@@ -1232,52 +1244,6 @@ class Environment(Base):
             return 40 + 10
         # return num_badges * 5  # env18v4
 
-    def get_last_pokecenter_list(self):
-        pc_list = [0, ] * len(self.pokecenter_ids)
-        last_pokecenter_id = self.get_last_pokecenter_id()
-        if last_pokecenter_id != -1:
-            pc_list[last_pokecenter_id] = 1
-        return pc_list
-    
-    def get_last_pokecenter_id(self):
-        
-        last_pokecenter = ram_map.mem_val(self.game, 0xD719)
-        # will throw error if last_pokecenter not in pokecenter_ids, intended
-        if last_pokecenter == 0:
-            # no pokecenter visited yet
-            return -1
-        if last_pokecenter not in self.pokecenter_ids:
-            print(f'\nERROR: last_pokecenter: {last_pokecenter} not in pokecenter_ids')
-            return -1
-        else:
-            return self.pokecenter_ids.index(last_pokecenter)   
-    
-    def get_special_rewards(self):
-        rewards = 0
-        rewards += len(self.hideout_elevator_maps) * 2.0
-        bag_items = self.get_items_in_bag()
-        if 0x2B in bag_items:
-            # 6.0 full mansion rewards + 1.0 extra key items rewards
-            rewards += 7.0
-        return rewards
-    
-    def get_hm_usable_reward(self):
-        total = 0
-        if self.can_use_cut:
-            total += 1
-        if self.can_use_surf:
-            total += 1
-        return total * 2.0
-    
-    def get_special_key_items_reward(self):
-        items = self.get_items_in_bag()
-        special_cnt = 0
-        # SPECIAL_KEY_ITEM_IDS
-        for item_id in SPECIAL_KEY_ITEM_IDS:
-            if item_id in items:
-                special_cnt += 1
-        return special_cnt * 1.0
-    
     def get_used_cut_coords_reward(self):
         return len(self.used_cut_coords_dict) * 0.2
     
@@ -1301,11 +1267,6 @@ class Environment(Base):
             if hm_move in all_moves:
                 hm_move_count += 1
         return hm_move_count * 1.5
-    
-    def update_visited_pokecenter_list(self):
-        last_pokecenter_id = self.get_last_pokecenter_id()
-        if last_pokecenter_id != -1 and last_pokecenter_id not in self.visited_pokecenter_list:
-            self.visited_pokecenter_list.append(last_pokecenter_id)
 
     def get_early_done_reward(self):
         return self.elite_4_early_done * -0.3
@@ -1313,60 +1274,6 @@ class Environment(Base):
     def get_visited_pokecenter_reward(self):
         # reward for first time healed in pokecenter
         return len(self.visited_pokecenter_list) * 2     
-    
-    def get_game_state_reward(self, print_stats=False):
-        # addresses from https://datacrystal.romhacking.net/wiki/Pok%C3%A9mon_Red/Blue:RAM_map
-        # https://github.com/pret/pokered/blob/91dc3c9f9c8fd529bb6e8307b58b96efa0bec67e/constants/event_constants.asm
-        '''
-        num_poke = ram_map.mem_val(self.game, 0xD163)
-        poke_xps = [self.read_triple(a) for a in [0xD179, 0xD1A5, 0xD1D1, 0xD1FD, 0xD229, 0xD255]]
-        #money = self.read_money() - 975 # subtract starting money
-        seen_poke_count = sum([self.bit_count(ram_map.mem_val(self.game, i)) for i in range(0xD30A, 0xD31D)])
-        all_events_score = sum([self.bit_count(ram_map.mem_val(self.game, i)) for i in range(0xD747, 0xD886)])
-        oak_parcel = self.read_bit(0xD74E, 1) 
-        oak_pokedex = self.read_bit(0xD74B, 5)
-        opponent_level = ram_map.mem_val(self.game, 0xCFF3)
-        self.max_opponent_level = max(self.max_opponent_level, opponent_level)
-        enemy_poke_count = ram_map.mem_val(self.game, 0xD89C)
-        self.max_opponent_poke = max(self.max_opponent_poke, enemy_poke_count)
-        
-        if print_stats:
-            print(f'num_poke : {num_poke}')
-            print(f'poke_levels : {poke_levels}')
-            print(f'poke_xps : {poke_xps}')
-            #print(f'money: {money}')
-            print(f'seen_poke_count : {seen_poke_count}')
-            print(f'oak_parcel: {oak_parcel} oak_pokedex: {oak_pokedex} all_events_score: {all_events_score}')
-        '''
-        last_event_rew = self.max_event_rew
-        self.max_event_rew = self.update_max_event_rew()
-        state_scores = {
-            'event': self.max_event_rew,  
-            #'party_xp': self.reward_scale*0.1*sum(poke_xps),
-            'level': self.get_levels_reward(), 
-            # 'heal': self.total_healing_rew,
-            'op_lvl': self.update_max_op_level(),
-            # 'dead': -self.get_dead_reward(),
-            'badge': self.get_badges_reward(),  # 5
-            #'op_poke':self.max_opponent_poke * 800,
-            #'money': money * 3,
-            #'seen_poke': self.reward_scale * seen_poke_count * 400,
-            # 'explore': self.get_knn_reward(last_event_rew),
-            'visited_pokecenter': self.get_visited_pokecenter_reward(),
-            'hm': self.get_hm_rewards(),
-            # 'hm_move': self.get_hm_move_reward(),  # removed this for now
-            'hm_usable': self.get_hm_usable_reward(),
-            'trees_cut': self.get_used_cut_coords_reward(),
-            'early_done': self.get_early_done_reward(),  # removed
-            'special_key_items': self.get_special_key_items_reward(),
-            'special': self.get_special_rewards(),
-            'heal': self.total_healing_rew,
-        }
-
-        # multiply by reward scale
-        state_scores = {k: v * self.reward_scale for k, v in state_scores.items()}
-        
-        return state_scores
     
     # BET ADDING A BUNCH OF STUFF
     def minor_patch_victory_road(self):
@@ -1526,8 +1433,7 @@ class Environment(Base):
     )
     
     def print_dict_items_and_sum(self, d):
-        total_sum = 0  # Initialize sum for the current dictionary level
-        
+        total_sum = 0  # Initialize sum for the current dictionary level        
         for key, value in list(d.items()):
             if isinstance(value, dict):
                 # Recursively process nested dictionaries
@@ -1544,19 +1450,25 @@ class Environment(Base):
                 total_sum += value  # Add numeric value to total sum
             else:
                 del d[key]  # Remove the key if the value is not a positive number
-
         return d, total_sum  # Return the filtered dictionary and total sum of values
 
     def write_hp_for_first_pokemon(self, new_hp, new_max_hp):
         """Write new HP value for the first party Pokémon."""
         # HP address for the first party Pokémon
         hp_addr = ram_map.HP_ADDR[0]
-        max_hp_addr = ram_map.MAX_HP_ADDR[0]        
+        self.hp_before = hp_addr
+        max_hp_addr = ram_map.MAX_HP_ADDR[0]  
+        
+        party_max_hp = [ram_map.read_uint16(self.game, addr) for addr in ram_map.MAX_HP_ADDR]
+        print(f'party max hp={party_max_hp}')
+        poke_1_current_max_hp = party_max_hp[0]
+        print(f'poke1 cur max hp={poke_1_current_max_hp}')
+        
         # Break down the new_hp value into two bytes
         hp_high = new_hp // 256  # Get the high byte
         hp_low = new_hp % 256    # Get the low byte
-        max_hp_high = new_max_hp // 256  # Get the high byte
-        max_hp_low = new_max_hp % 256    # Get the low byte        
+        max_hp_high = poke_1_current_max_hp // 256  # Get the high byte
+        max_hp_low = poke_1_current_max_hp % 256    # Get the low byte        
         # Write the high byte and low byte to the corresponding memory addresses
         ram_map.write_mem(self.game, hp_addr, hp_high)
         ram_map.write_mem(self.game, hp_addr + 1, hp_low)
@@ -1564,7 +1476,41 @@ class Environment(Base):
         ram_map.write_mem(self.game, max_hp_addr + 1, max_hp_low)
         # print(f"Set Max HP for the first party Pokémon to {new_max_hp}")
         # print(f"Set HP for the first party Pokémon to {new_hp}")
+        
+    # def write_hp_for_all_pokemon_keeping_max_hp_same(self, new_hp, new_max_hp):
+    #     """Write new HP and Max HP values for all Pokémon in the party."""
+    #     for hp_addr, max_hp_addr in zip(ram_map.HP_ADDR, ram_map.MAX_HP_ADDR):
+    #         # Break down the new_hp and new_max_hp values into two bytes each
+    #         hp_high = new_hp // 256  # High byte of HP
+    #         hp_low = new_hp % 256    # Low byte of HP
+    #         max_hp_high = new_max_hp // 256  # High byte of Max HP
+    #         max_hp_low = new_max_hp % 256    # Low byte of Max HP
+            
+    #         # Write the high and low bytes to the corresponding memory addresses for HP
+    #         ram_map.write_mem(self.game, hp_addr, hp_high)
+    #         ram_map.write_mem(self.game, hp_addr + 1, hp_low)
+            
+    #         # Write the high and low bytes to the corresponding memory addresses for Max HP
+    #         ram_map.write_mem(self.game, max_hp_addr, max_hp_high)
+    #         ram_map.write_mem(self.game, max_hp_addr + 1, max_hp_low)
+            
+    #         # Optionally, print statements to confirm each Pokémon’s HP has been set
+    #         print(f"Set HP for Pokémon at {hp_addr} to {new_hp}/{new_max_hp}")
     
+    def blackout_now(self):
+        """
+        Update the HP of all party Pokémon to match their Max HP.
+        """
+        for i in range(len(ram_map.CHP)):
+            # Values < 1 for current hp will be calculated as 0 by game
+            hp_high = 0.1 // 256
+            hp_low = 0.1 % 256
+            # Update current HP to match Max HP
+            ram_map.write_mem(self.game, ram_map.CHP[i], hp_high)
+            ram_map.write_mem(self.game, ram_map.CHP[i] + 1, hp_low)
+            # print(f"Updated Pokémon {i+1}: HP set to Max HP of {max_hp}.")
+        self.blackout_triggered = True
+        
     def update_party_hp_to_max(self):
         """
         Update the HP of all party Pokémon to match their Max HP.
@@ -1623,37 +1569,6 @@ class Environment(Base):
                 self.last_can_mem_val = mem_val
             except:
                 self.can_reward = 0
-
-    def get_all_events_reward(self):
-        if self.all_events_string != self.past_events_string:
-            first_i = -1
-            for i in range(len(self.all_events_string)):
-                if self.all_events_string[i] == '1' and self.rewarded_events_string[i] == '0' and i not in IGNORED_EVENT_IDS:
-                    self.rewarded_events_string = self.rewarded_events_string[:i] + '1' + self.rewarded_events_string[i+1:]
-                    if first_i == -1:
-                        first_i = i
-            if first_i != -1:
-                # update past event ids
-                self.last_10_event_ids = np.roll(self.last_10_event_ids, 1, axis=0)
-                self.last_10_event_ids[0] = [first_i, self.time]
-        return self.rewarded_events_string.count('1') - self.base_event_flags
-            # # elite 4 stage
-            # elite_four_event_addr_bits = [
-            #     [0xD863, 0],  # EVENT START
-            #     [0xD863, 1],  # LORELEIS
-            #     [0xD863, 6],  # LORELEIS AUTO WALK
-            #     [0xD864, 1],  # BRUNOS
-            #     [0xD864, 6],  # BRUNOS AUTO WALK
-            #     [0xD865, 1],  # AGATHAS
-            #     [0xD865, 6],  # AGATHAS AUTO WALK
-            #     [0xD866, 1],  # LANCES
-            #     [0xD866, 6],  # LANCES AUTO WALK
-            # ]
-            # ignored_elite_four_events = 0
-            # for ab in elite_four_event_addr_bits:
-            #     if self.get_event_rewarded_by_address(ab[0], ab[1]):
-            #         ignored_elite_four_events += 1
-            # return self.rewarded_events_string.count('1') - self.base_event_flags - ignored_elite_four_events
     
     def calculate_event_rewards(self, events_dict, base_reward, reward_increment, reward_multiplier):
         """
@@ -1767,13 +1682,73 @@ class Environment(Base):
             self.death_count += 1
             self.death_count_per_episode += 1
             self.is_dead = True
-        elif hp > 0.01:  # TODO: Check if this matters
+            print(f'ENV_{self.env_id} died. Reset #: {self.reset_count}, death count={self.death_count}, self.death_count_per_episode={self.death_count_per_episode}')
+            logging.info(f'ENV_{self.env_id} died. Reset #: {self.reset_count}, death count={self.death_count}, self.death_count_per_episode={self.death_count_per_episode}')
+
+            # try:
+            #     self.write_hp_for_first_pokemon(self.hp_before, self.max_hp_before)
+            # except Exception as e:
+            #     print(f'problem {e} with writing hp after dead=True')
+        elif hp > 0.01:
             self.is_dead = False
         self.last_hp = hp
         self.last_party_size = party_size
         self.death_reward = 0
         self.healing_reward = self.total_healing   
-    
+        
+    def get_badges_for_swarm(self):
+        self.badges = ram_map.badges(self.game)
+        badge_thresholds = [1, 2, 3, 4, 5, 6, 7, 8]
+        saved_flags = [
+            'badge_1_states_saved', 'badge_2_states_saved', 'badge_3_states_saved',
+            'badge_4_states_saved', 'badge_5_states_saved', 'badge_6_states_saved',
+            'badge_7_states_saved', 'badge_8_states_saved'
+        ]
+        for threshold, flag in zip(badge_thresholds, saved_flags):
+            if 0 < self.badges <= threshold and not getattr(self, flag):
+                setattr(self, flag, True)
+                saved_state = self.save_all_states_v3()
+                setattr(self, f'badge_{threshold}_states', saved_state)
+                
+    # Returns the .state and .pkl save states if a new badge was gotten in the current step
+    def check_for_new_badge(self):
+        self.badges = ram_map.badges(self.game)
+        # Badges should never decrease. If it does, maybe it's a weird ram thing and we won't use the values.
+        if self.badges < self.last_badge:
+            print(f'ENV_{self.env_id} check_for_new_badge: SOMEHOW WE HAVE LOST BADGES??? self.badges={self.badges}, self.last_badge={self.last_badge}')
+            logging.info(f'ENV_{self.env_id} check_for_new_badge: SOMEHOW WE HAVE LOST BADGES??? self.badges={self.badges}, self.last_badge={self.last_badge}')
+            return {}
+        if self.badges > self.last_badge: # and self.reset_count > 3:
+            print(f'ENV_{self.env_id} check_for_new_badge: self.badges>self.last_badge! self.badges={self.badges}, self.last_badge={self.last_badge}')
+            logging.info(f'ENV_{self.env_id} check_for_new_badge: self.badges>self.last_badge! self.badges={self.badges}, self.last_badge={self.last_badge}')
+
+            try:
+                print(f'ENV_{self.env_id}, check_for_new_badge: Triggered new badge condition!! self.badges={self.badges}, self.last_badge={self.last_badge}')
+                logging.critical(f'ENV_{self.env_id}, check_for_new_badge: Triggered new badge condition!! self.badges={self.badges}, self.last_badge={self.last_badge}')
+                self.saved_state_and_pkl = self.save_all_states_v3()
+                self.last_badge = self.badges
+                return self.saved_state_and_pkl
+            except Exception as e:
+                print(f"ENV_{self.env_id}, check_for_new_badge: FAILED TO SAVE STATE {self.badges}, {self.last_badge}: {e}")
+                return {}
+        else:
+            return {}
+        
+    # For testing purposes BET ADDED
+    def get_map_for_swarm(self):
+        r, c, map_n = ram_map.position(self.game)
+        if map_n == 6:
+            map_thresholds = [6]
+            saved_flags = [
+                'map_6_states_saved'
+            ]
+            for threshold, flag in zip(map_thresholds, saved_flags):
+                if map_n == threshold and not getattr(self, flag):
+                    setattr(self, flag, True)
+                    print(f'ENV_{self.env_id} flag={flag}')
+                    saved_state = self.save_all_states_v3()
+                    setattr(self, f'badge_{threshold}_states', saved_state)
+
     def get_badges_reward(self):
         self.badges = ram_map.badges(self.game)
         self.badges_reward = 10 * self.badges  # 5 BET
@@ -1996,78 +1971,179 @@ class Environment(Base):
             self.reference_time = current_time
             self.reference_reward = ema_reward
             return ema_reward    
+    
+    def read_eviction_trigger_file(self):
+        with open (self.eviction_trigger_fractions_path, "r") as f:
+            self.eviction_trigger_dict = json.load(f)
 
-    def calculate_average_slope(self, increases):
-        slopes = [(increases[i] - increases[i - 1]) for i in range(1, len(increases))]
-        return sum(slopes) / len(slopes)
-
-    ### WORKING
-    # def get_exploration_reward(self, map_n):
-    #     r, c, map_n = ram_map.position(self.game)
-    #     if self.steps_since_last_new_location >= self.step_threshold:
-    #         self.bonus_dynamic_reward_multiplier += self.bonus_dynamic_reward_increment
-    #     self.bonus_dynamic_reward = self.bonus_dynamic_reward_multiplier * len(self.dynamic_bonus_expl_seen_coords)    
-    #     if map_n in self.poketower_maps and int(ram_map.read_bit(self.game, 0xD838, 7)) == 0:
-    #         rew = 0
-    #     elif map_n in self.poketower_maps and int(ram_map.read_bit(self.game, 0xD838, 7)) != 0:
-    #         rew = (0.05 * len(self.seen_coords)) if self.used_cut < 1 else 0.13 * len(self.seen_coords)
-    #     elif map_n in self.poketower_maps and int(ram_map.read_bit(self.game, 0xD838, 7)) != 0:
-    #         rew = (0.05 * len(self.seen_coords)) if self.used_cut < 1 else 0.13 * len(self.seen_coords)
-    #     elif map_n in self.bonus_exploration_reward_maps:
-    #         rew = (0.05 * len(self.seen_coords)) if self.used_cut < 1 else 0.13 * len(self.seen_coords)
-    #     else:
-    #         rew = (0.02 * len(self.seen_coords)) if self.used_cut < 1 else 0.1 * len(self.seen_coords)
-    #     self.exploration_reward = rew + self.bonus_dynamic_reward
-    #     self.exploration_reward += self.shaped_exploration_reward
-    #     self.seen_coords.add((r, c, map_n))
-    #     self.exploration_reward = self.get_adjusted_reward(self.exploration_reward, self.time)
-    #############################
+    def read_eviction_trigger_file(self):
+        with open (self.eviction_trigger_fractions_path, "r") as f:
+            self.eviction_trigger_dict = json.load(f)
     
     # Gives slight negative rewards to envs that have completed the conditionals    
     # Currently a work-in-progress    
     # Exploration reward increments for certain maps when progress is not made.
     # This makes agents not want to leave those maps.
     # Once the progress is made, exploration reward has to be higher elsewhere
-    # to incentivize leaving.    
+    # to incentivize leaving.  
     def leave_location_after_quest_complete(self):
         r, c, map_n = ram_map.position(self.game)
-        completed = False  # Default to not completed
+        # Don't read too much..
+        eviction_penalty_dict = {}
+        eviction_penalty = -0.001
+        if self.time % 5000 == 0:
+            eviction_penalty_dict = self.read_and_update_eviction_penalty()
+            if eviction_penalty_dict:
+                eviction_penalty = eviction_penalty_dict.get("eviction_penalty", -0.001)
+                logging.info(f'ENV_{self.env_id} leave_location_after_quest_complete: got eviction_penalty_dict eviction penalty dict! value={eviction_penalty}')
+                print(f'ENV_{self.env_id} leave_location_after_quest_complete: got eviction_penalty_dict eviction penalty dict! value={eviction_penalty}')
+        completed = False
         # Check specific quests based on location and update milestone completion status
-        # Gym 3
-        if map_n == 92 and self.badges >= 3:
-            completed = True
-        # Gym 4
-        elif map_n == 134 and self.badges >= 4:
-            completed = True
+        # After loading swarm, should be True for that map_n            
+        b1 = self.eviction_trigger_dict
+        
+        # Test logging only    
+        if not self.alert_printed_this_reset_0:
+            logging.info(f'ENV_{self.env_id} leave_location_after_quest_complete, reset#={self.reset_count} Checking conditions with map_n={map_n}, badges={self.badges}, self.eviction_trigger_dict={b1}, completion_data={self.previous_completion_data}')
+            self.alert_printed_this_reset_0 = True
+        
         # Gym 1
-        elif map_n == 54 and self.badges >= 1:
+        if map_n == 54 and self.badges >= 1 and float(self.previous_completion_data["badge_1"]) >= self.eviction_trigger_dict.get("badge_1") or self.badge_1_completed:  # Assuming the criteria is at least 90%
             completed = True
+            self.badge_1_completed = True
+            if not self.alert_printed_this_reset_1:
+                print(f'ENV_{self.env_id} leave_location_after_quest_complete if map_n == 54 (actual={map_n}) and self.badges >= 1 (actual self.badges={self.badges} and self.previous_completion_data["badge_1"] >= self.eviction_trigger_dict.get("badge_1")(actual={self.eviction_trigger_dict.get("badge_1")}), (actual={float(self.previous_completion_data["badge_1"])}\ncompleted variable={completed}\n')
+                logging.critical(f'ENV_{self.env_id} leave_location_after_quest_complete if map_n == 54 (actual={map_n}) and self.badges >= 1 (actual self.badges={self.badges} and self.previous_completion_data["badge_1"] >= self.eviction_trigger_dict.get("badge_1")(actual={self.eviction_trigger_dict.get("badge_1")}), (actual={float(self.previous_completion_data["badge_1"])}\ncompleted variable={completed}\n')
+                self.alert_printed_this_reset_1 = True
         # Gym 2
-        elif map_n == 65 and self.badges >= 2:
+        if map_n == 65 and self.badges >= 2 and float(self.previous_completion_data["badge_2"]) >= self.eviction_trigger_dict.get("badge_2"):
             completed = True
+            self.badge_2_completed = True
+            if not self.alert_printed_this_reset_2:
+                print(f'ENV_{self.env_id} leave_location_after_quest_complete if map_n == 65 (actual={map_n}) and self.badges >= 2 (actual={self.badges} and self.previous_completion_data["badge_2"] >= 80 (actual={float(self.previous_completion_data["badge_2"])}\n')
+                logging.critical(f'ENV_{self.env_id} leave_location_after_quest_complete if map_n == 65 (actual={map_n}) and self.badges >= 2 (actual={self.badges} and self.previous_completion_data["badge_2"] >= 80 (actual={float(self.previous_completion_data["badge_2"])}\n')
+                self.alert_printed_this_reset_2 = True
+        # Gym 3
+        if map_n == 92 and self.badges >= 3 and float(self.previous_completion_data["badge_3"]) >= self.eviction_trigger_dict.get("badge_3"):
+            completed = True
+            self.badge_3_completed = True
+            if not self.alert_printed_this_reset_3:
+                print(f'ENV_{self.env_id} leave_location_after_quest_complete if map_n == 92 (actual={map_n}) and self.badges >= 3 (actual={self.badges} and self.previous_completion_data["badge_3"] >= 15 (actual={float(self.previous_completion_data["badge_3"])}\n')
+                logging.critical(f'ENV_{self.env_id} leave_location_after_quest_complete if map_n == 92 (actual={map_n}) and self.badges >= 3 (actual={self.badges} and self.previous_completion_data["badge_3"] >= 15 (actual={float(self.previous_completion_data["badge_3"])}\n')
+                self.alert_printed_this_reset_3 = True
+
+        # Gym 4
+        if map_n == 134 and self.badges >= 4 and float(self.previous_completion_data["badge_4"]) >= self.eviction_trigger_dict.get("badge_4"):
+            completed = True
+            self.badge_4_completed = True
+            if not self.alert_printed_this_reset_4:
+                print(f'ENV_{self.env_id} leave_location_after_quest_complete if map_n == 134 (actual={map_n}) and self.badges >= 4 (actual={self.badges} and self.previous_completion_data["badge_4"] >= 3 (actual={float(self.previous_completion_data["badge_4"])}\n')
+                logging.critical(f'ENV_{self.env_id} leave_location_after_quest_complete if map_n == 134 (actual={map_n}) and self.badges >= 4 (actual={self.badges} and self.previous_completion_data["badge_4"] >= 3 (actual={float(self.previous_completion_data["badge_4"])}\n')
+                self.alert_printed_this_reset_4 = True
+
         # Bill's House
-        elif map_n == 88 and ram_map.read_bit(self.game, 0xD7F2, 7) == 1:  # Bill's quest completed
+        if map_n == 88 and ram_map.read_bit(self.game, 0xD7F2, 7) == 1 and float(self.previous_completion_data["bill_saved"]) >= self.eviction_trigger_dict.get("bill_saved"):  # Bill's quest completed
             completed = True
-        elif map_n in self.rocket_hideout_maps:
+            self.bill_completed = True
+            if not self.alert_printed_this_reset_5:
+                print(f'ENV_{self.env_id} leave_location_after_quest_complete if map_n == 88 (actual={map_n}) and ram_map.read_bit(self.game, 0xD7F2, 7) == 1 (actual={ram_map.read_bit(self.game, 0xD7F2, 7)} and self.previous_completion_data["saved_bill"] >= 70 (actual={float(self.previous_completion_data["saved_bill"])}')
+                logging.critical(f'ENV_{self.env_id} leave_location_after_quest_complete if map_n == 88 (actual={map_n}) and ram_map.read_bit(self.game, 0xD7F2, 7) == 1 (actual={ram_map.read_bit(self.game, 0xD7F2, 7)} and self.previous_completion_data["saved_bill"] >= 70 (actual={float(self.previous_completion_data["saved_bill"])}')
+                self.alert_printed_this_reset_5 = True
+                
+        # Rocket Hideout
+        if map_n in self.rocket_hideout_maps and float(self.previous_completion_data["beat_rocket_hideout_giovanni"]) >= self.eviction_trigger_dict.get("beat_rocket_hideout_giovanni"):
             self.hideout_progress = ram_map_leanke.monitor_hideout_events(self.game)
             if self.hideout_progress['beat_rocket_hideout_giovanni'] != 0:
                 completed = True
-        elif map_n in self.pokemon_tower_maps:
+                self.rocket_hideout_completed = True
+                if not self.alert_printed_this_reset_6:
+                    print(f'ENV_{self.env_id} leave_location_after_quest_complete if map_n in self.rocket_hideout_maps (actual={map_n in self.rocket_hideout_maps}) and self.previous_completion_data["beat_rocket_hideout_giovanni"] >= 40 (actual={float(self.previous_completion_data["beat_rocket_hideout_giovanni"])}')
+                    logging.critical(f'ENV_{self.env_id} leave_location_after_quest_complete if map_n in self.rocket_hideout_maps (actual={map_n in self.rocket_hideout_maps}) and self.previous_completion_data["beat_rocket_hideout_giovanni"] >= 40 (actual={float(self.previous_completion_data["beat_rocket_hideout_giovanni"])}')
+                    self.alert_printed_this_reset_6 = True
+                        
+        # Pokemon Tower
+        if map_n in self.pokemon_tower_maps and float(self.previous_completion_data["rescued_mr_fuji"]) >= self.eviction_trigger_dict.get("rescued_mr_fuji"):
             self.pokemon_tower_progress = ram_map_leanke.monitor_poke_tower_events(self.game)
             if self.pokemon_tower_progress['rescued_mr_fuji'] != 0 or self.has_silph_scope_in_bag == True:
                 completed = True
-        elif map_n in self.silph_co_maps:
+                self.pokemon_tower_completed = True   
+                if not self.alert_printed_this_reset_7:      
+                    print(f'ENV_{self.env_id} leave_location_after_quest_complete if map_n in self.pokemon_tower_maps (actual={map_n in self.pokemon_tower_maps}) and self.previous_completion_data["rescued_mr_fuji"] >= 20 (actual={float(self.previous_completion_data["rescued_mr_fuji"])}')
+                    logging.critical(f'ENV_{self.env_id} leave_location_after_quest_complete if map_n in self.pokemon_tower_maps (actual={map_n in self.pokemon_tower_maps}) and self.previous_completion_data["rescued_mr_fuji"] >= 20 (actual={float(self.previous_completion_data["rescued_mr_fuji"])}')
+                    self.alert_printed_this_reset_7 = True
+                    
+        # Silph Co
+        if map_n in self.silph_co_maps and float(self.previous_completion_data["beat_silph_co_giovanni"]) >= self.eviction_trigger_dict.get("beat_silph_co_giovanni"):
             self.silph_progress = ram_map_leanke.monitor_silph_co_events(self.game)
             if self.silph_progress["beat_silph_co_giovanni"] != 0:
                 completed = True
-        # Adjust exploration rewards based on the completion status
+                if not self.alert_printed_this_reset_8:
+                    print(f'ENV_{self.env_id} leave_location_after_quest_complete if map_n in self.silph_co_maps (actual={map_n in self.silph_co_maps}) and self.previous_completion_data["beat_silph_co_giovanni"] >= 10 (actual={float(self.previous_completion_data["beat_silph_co_giovanni"])}')
+                    logging.critical(f'ENV_{self.env_id} leave_location_after_quest_complete if map_n in self.silph_co_maps (actual={map_n in self.silph_co_maps}) and self.previous_completion_data["beat_silph_co_giovanni"] >= 10 (actual={float(self.previous_completion_data["beat_silph_co_giovanni"])}')
+                    self.alert_printed_this_reset_8 = True
+                
+        # Reset exploration reward to slightly negative to incentivize leaving the area
+        # eviction_penalty can be modified manually during run by changing eviction_penalty.json
         if completed:
-            # Reset exploration reward to slightly negative to incentivize leaving the area
-            self.exploration_reward = -0.01
-            if not self.alert_printed_this_reset:
+            self.exploration_reward = eviction_penalty * len(self.seen_coords) # -0.01
+            if not self.alert_printed_this_reset_if_completed:
                 print(f"Quest completed at {map_n}, negative exploration reward for env_{self.env_id} applied.")
+                logging.warning(f"Quest completed at {map_n}, negative exploration reward for env_{self.env_id} applied.")
+                self.alert_printed_this_reset_if_completed = True                
+        # Ridiculously high rewards will keep envs on the map for the purposes of grouping
+        elif map_n in self.leave_location_maps:
+            self.exploration_reward += 0.01 # 0.5
+            if not self.alert_printed_this_reset:
+                logging.warning(f"leave_location_after_quest_complete primary elif: {map_n}, env_{self.env_id}")
+                print(f"leave_location_after_quest_complete primary elif: {map_n}, env_{self.env_id}")
                 self.alert_printed_this_reset = True
-        # Call normal exploration reward function
+        else:
+            # Exploration reward will handle since no special handling is necessary
+            pass
+        return self.exploration_reward
+    
+    def leave_location_after_quest_complete_v2(self):
+        r, c, map_n = ram_map.position(self.game)
+        eviction_penalty_dict = {}
+        eviction_penalty = -0.001
+        if self.time % 5000 == 0:
+            eviction_penalty_dict = self.read_and_update_eviction_penalty()
+            if eviction_penalty_dict:
+                eviction_penalty = eviction_penalty_dict.get("eviction_penalty", -0.001)        
+        completed = False
+        step_incremented = False
+        quest_checks = [
+            (54, "badge_1"),
+            (65, "badge_2"),
+            (92, "badge_3"),
+            (134, "badge_4"),
+            (88, "bill_saved", ram_map.read_bit(self.game, 0xD7F2, 7) == 1),
+            (self.rocket_hideout_maps, "rocket_hideout"),
+            (self.pokemon_tower_maps, "pokemon_tower", self.has_silph_scope_in_bag),
+            (self.silph_co_maps, "silph_co")
+        ]
+        for check in quest_checks:
+            additional_condition = check[2] if len(check) > 2 else True
+            condition_met = (
+                map_n == check[0] and
+                float(self.previous_completion_data[check[1]]) >= self.eviction_trigger_dict.get(check[1]) and
+                additional_condition
+            )
+            if condition_met:
+                completed = True
+                setattr(self, f'{check[1]}_completed', True)
+                self.steps_for_conditions[check[1]] += 1
+                step_incremented = True
+                if self.steps_for_conditions[check[1]] >= 20480:
+                    self.blackout_now()
+                    break
+        # Adjust exploration reward based on completion status
+        if completed:
+            self.exploration_reward = eviction_penalty * len(self.seen_coords)
+        elif map_n in self.leave_location_maps:
+            self.exploration_reward += 0.01
+        else:
+            self.exploration_reward
         return self.exploration_reward
 
 
@@ -2123,46 +2199,6 @@ class Environment(Base):
                 # print(f'incremented self.steps_since_last_new_location by 1 ({self.steps_since_last_new_location})')
         else:
             self.shaped_exploration_reward = 0
-
-
-    # def get_location_shaped_reward(self):
-    #     r, c, map_n = ram_map.position(self.game)
-    #     if map_n in self.fixed_bonus_expl_maps:
-    #         bonus_fixed_increment = self.fixed_bonus_expl_maps[map_n]
-    #         shaped_exploration_reward = bonus_fixed_increment
-    #     else:
-    #         shaped_exploration_reward = 0
-    #     return shaped_exploration_reward
-
-    
-    #   "badge_1", self.badges >= 1
-    #   "mt_moon_completion", 'mt_moon_key'
-    #     "badge_2", self.badges >= 2
-    #     "bill_completion", ram_map.read_bit(self.game, 0xD7F2, 7)
-    #     "rubbed_captains_back", ram_map.read_bit(self.game, 0xD803, 1)
-    #     "taught_cut", self.cut
-    #     "used_cut_on_good_tree", self.used_cut > 0
-        
-    
-    
-    # def get_location_shaped_reward(self):
-    #     r, c, map_n = ram_map.position(self.game)
-    #     current_location = (r, c, map_n)
-    #     # print(f'cur_loc={current_location}')
-    #     if map_n in self.fixed_bonus_expl_maps: # map_n eligible for a fixed bonus reward?
-    #         bonus_fixed_increment = self.fixed_bonus_expl_maps[map_n] # fixed additional reward from dict
-    #         self.shaped_exploration_reward = bonus_fixed_increment
-    #         if current_location not in self.dynamic_bonus_expl_seen_coords: # start progress monitoring on eligible map_n 
-    #             # print(f'current_location={current_location}')
-    #             # print(f'self.dynamic_bonus_expl_seen_coords={self.dynamic_bonus_expl_seen_coords}')
-    #             self.dynamic_bonus_expl_seen_coords.add(current_location) # add coords if unseen
-    #             self.steps_since_last_new_location = 0
-    #         else:
-    #             self.steps_since_last_new_location += 1
-    #             # print(f'incremented self.steps_since_last_new_location by 1 ({self.steps_since_last_new_location})')
-    #     else:
-    #         self.shaped_exploration_reward = 0
-    #     self.exploration_reward = self.get_adjusted_reward(self.exploration_reward, self.time)
         
     def get_respawn_reward(self):
         center = self.game.get_memory_value(0xD719)
@@ -2213,41 +2249,103 @@ class Environment(Base):
     
     def update_state(self, state: bytes):
         self.reset(seed=random.randint(0, 10), options={"state": state})
+    
+    # Serializes (saves) pyboy state files
+    def save_all_states_v3(self, is_failed=False):
+        state = io.BytesIO()
+        try:
+            self.game.save_state(state)
+            state.seek(0)
+            print(f"ENV_{self.env_id}: Saved PyBoy state in-memory")
+            logging.info(f"ENV_{self.env_id}: Saved PyBoy state in-memory")
+            self.new_save_state = True
+        except Exception as e:
+            print(f"ENV_{self.env_id}: Failed to save PyBoy state in-memory. Error: {e}")
+            logging.info(f"ENV_{self.env_id}: Failed to save PyBoy state in-memory. Error: {e}")
+        return {"state": state.read()}
 
-    def reset(self, seed=None, options=None, state=None, max_episode_steps=20480, reward_scale=4):
-        # restart game, skipping credits
+    def load_state_from_tuple_simple2(self, state_memory: BytesIO):
+        try:
+            state_memory.seek(0)
+            self.game.load_state(state_memory)
+            logging.info(f"ENV_{self.env_id}, load_state_from_tuple_simple2: Loaded pyboy state from memory!!")
+        except Exception as e:
+            logging.error(f"ENV_{self.env_id}, load_state_from_tuple_simple2: Failed to load PyBoy state from memory: {e}")
+            print(f"ENV_{self.env_id}, load_state_from_tuple_simple2: Failed to load PyBoy state from memory: {e}")
+        # self.reset_count = 0
+        self.step_count = 0
+        self.reset_count += 1    
+
+    def read_and_update_eviction_penalty(self):
+        try:
+            with open(self.eviction_penalty_file_path, 'r') as file:
+                data = json.load(file)
+            return data
+        except Exception as e:
+            print(f'ENV_{self.env_id} read_and_update_eviction_penalty: except triggered; failed to read json d/t {e}')
+            logging.info(f'ENV_{self.env_id} read_and_update_eviction_penalty: except triggered; failed to read json d/t {e}')            
+            return
+    
+    def load_completion_data(self):
+        try:
+            with open(self.percent_complete_file_path, 'r') as file:
+                data = json.load(file)
+                items = {key: float(value) for key, value in data.items()}
+                self.percent_complete_backup = items
+                # logging.critical(f'ENV_{self.env_id} load_completion_data: opened up completion_data at filepath {self.percent_complete_file_path}: LOADED COMPLETION_DATA items: {items}')
+            return items # {key: float(value) for key, value in data.items()}
+        except Exception as e:
+            return self.percent_complete_backup
+            # print(f'ENV_{self.env_id} load_completion_data: could not read json file d/t {e}!')
+            # logging.critical(f'ENV_{self.env_id} load_completion_data: could not read json file d/t {e}!')
+
+    # Updates completion_data of milestones for leave_location_after_quest_complete()
+    # Reads a json written by cprl
+    def update_completion_data(self):
+        self.previous_completion_data = self.load_completion_data()
+
+        # finally:
+        #     if self.previous_completion_data is None:
+        #         self.previous_completion_data = {
+        #                                 "badge_1": 0.0,
+        #                                 "badge_2": 0.0,
+        #                                 "badge_3": 0.0,
+        #                                 "badge_4": 0.0,
+        #                                 "badge_5": 0.0,
+        #                                 "badge_6": 0.0,
+        #                                 "badge_7": 0.0,
+        #                                 "badge_8": 0.0,
+        #                                 "bill_saved": 0.0,
+        #                                 "beat_rocket_hideout_giovanni": 0.0,
+        #                                 "rescued_mr_fuji": 0.0,
+        #                                 "beat_silph_co_giovanni": 0.0
+        #                             }
+        # print(f'ENV_{self.env_id} self.previous_completion_data (json contents from clean_pufferl): {self.previous_completion_data}')
+        # logging.info(f'ENV_{self.env_id} self.previous_completion_data (json contents from clean_pufferl): {self.previous_completion_data}')
+    
+    def catchup_badge(self):
+        next_badge = ram_map.badges(self.game) + 1
+        if self.previous_completion_data[f"badge_{next_badge}"] > 0.93:
+            ram_map.award_badge(self.game, 0xD356, next_badge)
+    
+    def reset(self, seed=None, options=None, state=None, max_episode_steps=20480, reward_scale=4): # 6120 for testing
         options = options or {}
-        # print(f'RESET {self.reset_count}')
         
         if self.reset_count == 0:
+            print(f'ENV_{self.env_id}, reset(): Loading PyBoy file self.load_first_state()')
+            logging.info(f'ENV_{self.env_id}, reset(): Loading PyBoy file self.load_first_state()')
             load_pyboy_state(self.game, self.load_first_state())
-        elif options.get("state", None) is not None:
-            self.game.load_state(io.BytesIO(options["state"]))
-            self.reset_count += 1
-
-        # self.sync_shared_data2()
-        # not_none_pls = self.milestones.get("files_to_load")
-        # self.logger.info(f'PRINTING IN RESET 2890 self.milestones[files_to_load]: {self.milestones["files_to_load"]}')
-        # if self.simple_loader == True and not_none_pls:
-        #     self.logger.info(f'RESET LINE 2820 self.milestones[files_to_load] before: {self.milestones["files_to_load"]}')
-        #     self.search_and_assign_files4()
-        #     self.logger.info(f'RESET LINE 2822 self.milestones[files_to_load] AFTER: {self.milestones["files_to_load"]}')
-        #     (pkl, pbstate) = self.milestones["files_to_load"]
-        #     self.load_state_from_tuple_simple2(pkl, pbstate)
-        # else:
-        #     # Check for new files only in env_0
-        #     if self.env_id == 0:
-        #         self.search_and_assign_files2()
-        #         self.load_state_from_tuple_gpt2()
-        #         print(f"Env {self.env_id} reset with new state.")
-
+            
+        if options.get("state"): # and options.get("pkl", None) is not None:
+        # Load the state from memory if provided through options
+            logging.info(f'reset(): RESET number {self.reset_count}, env_{self.env_id}: Attempting to load  self.load_state_from_tuple_simple2(io.BytesIO(options["pkl"]), io.BytesIO(options["state"]))')
+            print(f'reset(): RESET number {self.reset_count}, env_{self.env_id}: Attempting to load  self.load_state_from_tuple_simple2(io.BytesIO(options["pkl"]), io.BytesIO(options["state"]))')
+            self.load_state_from_tuple_simple2(io.BytesIO(options["state"]))
+            
         self.init_caches()
         assert len(self.all_events_string) == 2552, f'len(self.all_events_string): {len(self.all_events_string)}'
         self.rewarded_events_string = '0' * 2552
         self.base_event_flags = self.get_base_event_flags()
-        
-        # if self.reset_count == 0:
-        #     load_pyboy_state(self.game, self.load_first_state())
 
         if self.save_video:
             base_dir = self.s_path
@@ -2303,7 +2401,7 @@ class Environment(Base):
         self.party_level_base = 0
         self.party_level_post = 0
         self.last_num_mon_in_box = 0
-        self.death_count = 0
+        # self.death_count = 0
         self.visited_pokecenter_list = []
         self.last_10_map_ids = np.zeros((10, 2), dtype=np.float32)
         self.last_10_coords = np.zeros((10, 2), dtype=np.uint8)
@@ -2324,7 +2422,7 @@ class Environment(Base):
         self.museum_punishment = deque(maxlen=10)
         self.rewarded_distances = {}
         
-        # BET ADDED A BUNCH
+        # BET ADDED
         self._cut_badge = False
         self._have_hm01 = False
         self._can_use_cut = False
@@ -2333,13 +2431,9 @@ class Environment(Base):
         self._can_use_surf = False
         self._have_pokeflute = False
         self._have_silph_scope = False
-        self.update_last_10_map_ids()
-        self.update_last_10_coords()
-        self.update_seen_map_dict()
-
         self.used_cut_coords_dict = {}
         
-        # BET ADDED TESTING TODAY
+        # BET ADDED
         self.shaped_hideout_reward = 0
         self.shaped_map_reward = 0
         
@@ -2355,44 +2449,85 @@ class Environment(Base):
         self.pokemon_tower_progress = {}
         self.hideout_progress = {}
         self.silph_progress = {}
+        # Woefully tedious and I'm sure there is a much better way of doing this
         self.alert_printed_this_reset = False
+        self.alert_printed_this_reset_if_completed = False
+        self.alert_printed_this_reset_0 = False
+        self.alert_printed_this_reset_1 = False
+        self.alert_printed_this_reset_2 = False        
+        self.alert_printed_this_reset_3 = False
+        self.alert_printed_this_reset_4 = False
+        self.alert_printed_this_reset_5 = False
+        self.alert_printed_this_reset_6 = False
+        self.alert_printed_this_reset_7 = False
+        self.alert_printed_this_reset_8 = False
         
-        self.first = False
-        state = io.BytesIO()
-        self.game.save_state(state)
-        state.seek(0)
-        return self.render(), {"state": state.read()}
-        # return self.render(), {}
+        
+        
+        
+        # Pass an empty dict if no specific state dict is provided
+        if state is None:
+            saved_states_dict = {} # self.save_all_states_v3()
+        else:
+            saved_states_dict = state or {}
+
+        # Check for saved states from badge achievements (saved in step())
+        if self.saves_for_reset:
+            saved_states_dict = self.saves_for_reset
+            return self.render(), saved_states_dict
+        else:
+            logging.warning(f'PROBLEM LOOKING FOR saved_states_keys in env_{self.env_id}, reset number {self.reset_count}, , keys()={self.saves_for_reset.keys()}')
+
+        return self.render(), saved_states_dict # {"state": state.read()}
 
     def step(self, action, fast_video=True):
         run_action_on_emulator(self.game, self.screen, ACTIONS[action], self.headless, fast_video=fast_video,)
         self.time += 1
         
+        self.catchup_badge()
+        
+        # Never figured out how to write badges.. :/
+        # if self.env_id == 1:
+        #     self.badges = ram_map.badges(self.game)
+        #     print(f'env_id=1 ...BEFORE WRITE MEM badges={self.badges}')
+        #     logging.critical(f'env_id=1 ...BEFORE WRITE MEM badges={self.badges}')
+        #     self.update_badge_status(7)
+        #     self.badges = ram_map.badges(self.game)
+        #     print(f'env_id=1 ...AFTER WRITE MEM  badges={self.badges}')
+        #     logging.critical(f'env_id=1 ...AFTER WRITE MEM  badges={self.badges}')
+        
+        # Update completion data from file written by cprl
+        if self.time == 0 or self.time % 500 == 0:
+            self.update_completion_data()
+        
+        # A json file that controls leave_location_after_quest_complete() parameters
+        # if self.time % 1000 == 0:
+        #     self.read_eviction_trigger_file()
+    
         if self.save_video:
             self.add_video_frame()
             
         # Get local coordinate position and map_n
         r, c, map_n = ram_map.position(self.game)
-        # Prevent rewards abuse and encourage storyline progression
-        # Calls get_exploration_reward()
-        self.leave_location_after_quest_complete()
-        self.celadon_gym_4_tree_reward(action)
+        # Checks for new badge; calls states save if True
+        new_state = self.check_for_new_badge()
+        if new_state:
+            self.saves_for_reset = new_state
         
         # Call nimixx api
         self.api.process_game_states()
         current_bag_items = self.api.items.get_bag_item_ids()
         self.update_cut_badge()
         self.update_surf_badge()
-        # self.update_last_10_map_ids() # not used currently
-        # self.update_last_10_coords() # not used currently
-        # self.update_seen_map_dict() # not used currently
        
         # BET ADDED COOL NEW FUNCTIONS SECTION
         # Standard rewards
         self.is_new_map(r, c, map_n)
         self.check_bag_items(current_bag_items)
         self.get_exploration_reward(map_n)
-        # self.leave_location_after_quest_complete()
+        # if self.leave_location_active:
+        #     # logging.info(f'env_{self.env_id}: self.leave_location_active = True!')
+        # self.leave_location_after_quest_complete_v2()
         self.get_level_reward()
         self.get_healing_and_death_reward()
         self.get_badges_reward()
@@ -2408,8 +2543,9 @@ class Environment(Base):
         self.get_money()
         self.get_opponent_level_reward()
         self.get_event_reward()
-        
+
         # Special location rewards
+        self.celadon_gym_4_tree_reward(action)
         self.get_dojo_reward()
         self.get_hideout_reward()
         self.get_silph_co_events_reward()
@@ -2417,18 +2553,18 @@ class Environment(Base):
         self.get_hideout_events_reward()
         self.get_poke_tower_events_reward()
         self.get_gym_events_reward()
-        # Gym 3 for cans that have no switch (to encourage can checking)
+        # Gym 3 for cans that have no switch (to encourage can checking) (does it work???)
         self.get_can_reward()
         self.get_lock_1_use_reward()
-
+        self.count_gym_3_lock_1_use() 
+        
         # Cut check
         self.BET_cut_check()
         self.cut_check(action)
 
         # Other functions
         self.update_pokedex()
-        self.update_moves_obtained()         
-        self.count_gym_3_lock_1_use()    
+        self.update_moves_obtained()            
         
         # Calculate some rewards
         # Menu rewards only if hm01 is in bag
@@ -2437,7 +2573,7 @@ class Environment(Base):
         self.calculate_cut_coords_and_tiles_rewards()
         self.calculate_seen_caught_pokemon_moves()   
         
-        # Final reward calculation
+        # Final reward calculation: subtract previous step's reward from current step's reward
         self.calculate_reward()
         reward, self.last_reward = self.subtract_previous_reward_v1(self.last_reward, self.reward)
 
@@ -2447,10 +2583,36 @@ class Environment(Base):
         if self.save_video and done:
             self.full_frame_writer.close()
         
-        # info.update({"stats": {"seen_pokemon": np.sum(self.seen_pokemon)}})
-        # info.update({"stats": {"event": self.get_events()}})
+        self.hideout_progress = ram_map_leanke.monitor_hideout_events(self.game)
+        self.pokemon_tower_progress = ram_map_leanke.monitor_poke_tower_events(self.game)
+        self.silph_progress = ram_map_leanke.monitor_silph_co_events(self.game)
+        self.badges = ram_map.badges(self.game)
+
+        if 'stats' not in info:
+            info['stats'] = {}
+        if 'state' not in info:
+            info['state'] = {}
         
-        if done or self.time % 10000 == 0: # 10000
+        if self.new_save_state:
+            info['stats'].update(self.saved_state_and_pkl)
+            self.new_save_state = False
+            info['state'].update(self.saved_state_and_pkl)
+        
+        # Just to be safe, updating these stepwise. They probably don't need to be updated so frequently...
+        info['stats'].update({
+            "badges": float(self.badges),
+            "badge_1": float(self.badges >= 1),
+            "badge_2": float(self.badges >= 2),
+            "badge_3": float(self.badges >= 3),
+            "badge_4": float(self.badges >= 4),
+            "badge_5": float(self.badges >= 5),
+            "badge_6": float(self.badges >= 6),
+            "beat_rocket_hideout_giovanni": self.hideout_progress['beat_rocket_hideout_giovanni'],
+            "rescued_mr_fuji": self.pokemon_tower_progress['rescued_mr_fuji'],
+            "beat_silph_co_giovanni": self.silph_progress['beat_silph_co_giovanni']
+        })
+
+        if done or self.time % 10000 == 0 or self.time == 0:
             info = {
                 "pokemon_exploration_map": self.counts_map,
                 "stats": {
@@ -2479,6 +2641,8 @@ class Environment(Base):
                     "badge_4": float(self.badges >= 4),
                     "badge_5": float(self.badges >= 5),
                     "badge_6": float(self.badges >= 6),
+                    "badge_7": float(self.badges >= 7),
+                    "badge_8": float(self.badges >= 8),
                     "events": len(self.past_events_string),
                     # "action_hist": self.action_hist,
                     # "caught_pokemon": int(sum(self.caught_pokemon)),
@@ -2536,8 +2700,11 @@ class Environment(Base):
                     'self.bonus_dynamic_reward_increment': self.bonus_dynamic_reward_increment,
                     'len(self.dynamic_bonus_expl_seen_coords)': len(self.dynamic_bonus_expl_seen_coords),
                     'len(self.seen_coords)': len(self.seen_coords),
-                    'self.milestones': self.milestones,              
-                                    
+                    'self.milestones': self.milestones,   
+                    'beat_rocket_hideout_giovanni': self.hideout_progress['beat_rocket_hideout_giovanni'],
+                    'rescued_mr_fuji': self.pokemon_tower_progress['rescued_mr_fuji'],    
+                    'beat_silph_co_giovanni': self.silph_progress['beat_silph_co_giovanni'],
+
                     "silph_co_events_aggregate": {
                         **ram_map_leanke.monitor_silph_co_events(self.game),
                     },
@@ -2659,17 +2826,55 @@ class Environment(Base):
                         },
                         },
                 },
-
                 }
-            
-                # "pokemon_exploration_map": self.counts_map, # self.explore_map, #  self.counts_map,
-                
-            # d, total_sum = self.print_dict_items_and_sum(info['reward'])
-            # print(f'\ntotal_sum={total_sum}\n')
-            
+
         return self.render(), reward, done, done, info
     
     def calculate_reward(self):
+        eviction_penalty_dict = {}
+        try:
+            eviction_penalty_dict = self.read_and_update_eviction_penalty()
+            turbo_exp_bonus = eviction_penalty_dict.get("turbo_exp_boost", 0)
+        except:
+            pass
+        # Write pokemon hp for testing purposes
+        try:
+            pokemon_1_hp_numerator = eviction_penalty_dict.get("pokemon_1_hp_numerator", "")
+            pokemon_1_hp_denominator = eviction_penalty_dict.get("pokemon_1_hp_denominator", "")
+            blackout_condition = eviction_penalty_dict.get("blackout", "")
+        except:
+            pass
+        try:
+            if blackout_condition:
+                if not self.blackout_triggered:
+                    self.blackout_now()
+                self.steps_to_wait += 1
+                if self.steps_to_wait >= 8:
+                    with open(self.eviction_penalty_file_path, "r") as f:
+                        loaded_dict = json.load(f)
+                        print(f'loaded_dict={loaded_dict}')
+                        loaded_dict["pokemon_1_hp_numerator"] = ""
+                        loaded_dict["pokemon_1_hp_denominator"] = ""
+                        loaded_dict["blackout"] = ""
+                    with self.shared_lock:
+                        with open(self.eviction_penalty_file_path, "w") as f:
+                            json.dump(loaded_dict, f)
+                    self.steps_to_wait = 0
+                    self.blackout_now = False
+            if pokemon_1_hp_numerator and pokemon_1_hp_denominator:
+                self.write_hp_for_first_pokemon(pokemon_1_hp_numerator, pokemon_1_hp_denominator)
+                with open(self.eviction_penalty_file_path, "r") as f:
+                    loaded_dict = json.load(f)
+                    print(f'loaded_dict={loaded_dict}')
+                    loaded_dict["pokemon_1_hp_numerator"] = ""
+                    loaded_dict["pokemon_1_hp_denominator"] = ""
+                with self.shared_lock:
+                    with open(self.eviction_penalty_file_path, "w") as f:
+                        json.dump(loaded_dict, f)
+        except:
+            pass
+                
+        self.exploration_reward += turbo_exp_bonus
         self.reward = self.reward_scale * (
             + self.event_reward
             + self.bill_capt_reward
@@ -3131,12 +3336,12 @@ class Environment(Base):
     #         else:
     #             print("No state files specified or found for loading.")
 
-    def assign_files_to_load(self, pkl_path, state_path):
-        if pkl_path and state_path:
-            self.milestones['files_to_load'] = (pkl_path, state_path)
-            print(f"\nAssigned files to load for env_id {self.env_id}: {self.milestones.get('files_to_load')}\n")
-        else:
-            print("Invalid file paths provided.")
+    # def assign_files_to_load(self, pkl_path, state_path):
+    #     if pkl_path and state_path:
+    #         self.milestones['files_to_load'] = (pkl_path, state_path)
+    #         print(f"\nAssigned files to load for env_id {self.env_id}: {self.milestones.get('files_to_load')}\n")
+    #     else:
+    #         print("Invalid file paths provided.")
 
     # def search_and_assign_files(self):
     #     file_dict = {}
