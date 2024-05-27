@@ -1784,37 +1784,6 @@ def write_mem(game, addr, value):
     mem = game.set_memory_value(addr, value)
     return mem
 
-# # Returns dict of party pokemons' names, levels, and moves for printing to text file:
-# def pokemon_l(game):
-#     # Get active party information using the party function
-#     party_size, _ = party(game)
-#     # Initialize a list of dictionaries for all 6 slots
-#     pokemon_info = [{"slot": str(i + 1), "name": "", "level": "0", "moves": []} for i in range(6)]
-#     # Iterate over each Pokémon slot
-#     for i in range(party_size):
-#         # Get the Pokémon and level for the current slot
-#         p, l = game.get_memory_value(POKE[i]), game.get_memory_value(LEVEL[i])
-#         # Convert the Pokémon's decimal value to hex and remove the '0x' prefix
-#         hex_value = hex(int(p))[2:].upper()
-#         # Check if the hex value is in pokemon_data
-#         matching_pokemon = next((entry for entry in pokemon_data if entry.get('hex') == hex_value), None)
-#         if matching_pokemon:
-#             # Update the Pokémon's name and level
-#             pokemon_info[i]["name"] = matching_pokemon["name"]
-#             pokemon_info[i]["level"] = str(l)
-#             # Get the moves for the current Pokémon
-#             moves_addresses = [MOVE1[i], MOVE2[i], MOVE3[i], MOVE4[i]]
-#             pokemon_info[i]["moves"] = []  # Clear the moves for the current Pokémon
-#             for moves_address in moves_addresses:
-#                 # Check each of the 4 possible moves
-#                 move_value = game.get_memory_value(moves_address)
-#                 if move_value != 0x00:
-#                     # Get the move information and add the move name to the Pokémon's moves
-#                     move_info = moves_dict.get(move_value, {})
-#                     move_name = move_info.get("Move", "")
-#                     pokemon_info[i]["moves"].append(move_name)
-#     return pokemon_info
-
 def ss_anne_appeared(game):
     """
     D803 - A bunch of bits that do different things
@@ -1838,16 +1807,6 @@ def started_walking_out_of_dock(game):
 
 def walked_out_of_dock(game):
     return read_bit(game, SS_ANNE, 5)
-
-# def npc_y(game, npc_id, npc_bank):
-#     npc_id = npc_id * 0x10
-#     npc_bank = (npc_bank + 1) *  0x100
-#     return game.get_memory_value(0xC004 + npc_id + npc_bank)
-
-# def npc_x(game, npc_id, npc_bank):
-#     npc_id = npc_id * 0x10
-#     npc_bank = (npc_bank + 1) *  0x100
-#     return game.get_memory_value(0xC006 + npc_id + npc_bank)
 
 def npc_y(game, npc_id):
     npc_id = npc_id * 0x10
@@ -1916,3 +1875,58 @@ def read_ram_bit(game, addr, bit: int) -> bool:
 
 def trash_can_memory(game):
     return mem_val(game, 0xcd5b)
+
+def write_hp_for_first_pokemon(game, new_hp, new_max_hp):
+    """Write new HP value for the first party Pokémon."""
+    # HP address for the first party Pokémon
+    hp_addr = HP_ADDR[0]
+    max_hp_addr = MAX_HP_ADDR[0]        
+    # Break down the new_hp value into two bytes
+    hp_high = new_hp // 256  # Get the high byte
+    hp_low = new_hp % 256    # Get the low byte
+    max_hp_high = new_max_hp // 256  # Get the high byte
+    max_hp_low = new_max_hp % 256    # Get the low byte        
+    # Write the high byte and low byte to the corresponding memory addresses
+    write_mem(game, hp_addr, hp_high)
+    write_mem(game, hp_addr + 1, hp_low)
+    write_mem(game, max_hp_addr, max_hp_high)
+    write_mem(game, max_hp_addr + 1, max_hp_low)
+    # print(f"Set Max HP for the first party Pokémon to {new_max_hp}")
+    # print(f"Set HP for the first party Pokémon to {new_hp}")
+
+def update_party_hp_to_max(game):
+    """
+    Update the HP of all party Pokémon to match their Max HP.
+    """
+    for i in range(len(CHP)):
+        # Read Max HP
+        max_hp = read_uint16(game, MAX_HP_ADDR[i])            
+        # Calculate high and low bytes for Max HP to set as current HP
+        hp_high = max_hp // 256
+        hp_low = max_hp % 256
+        # Update current HP to match Max HP
+        write_mem(game, CHP[i], hp_high)
+        write_mem(game, CHP[i] + 1, hp_low)
+        # print(f"Updated Pokémon {i+1}: HP set to Max HP of {max_hp}.")
+            
+def restore_party_move_pp(game):
+    """
+    Restores the PP of all moves for the party Pokémon based on moves_dict data.
+    """
+    for i in range(len(MOVE1)):  # Assuming same length for MOVE1 to MOVE4
+        moves_ids = [mem_val(game, move_addr) for move_addr in [MOVE1[i], MOVE2[i], MOVE3[i], MOVE4[i]]]
+        
+        for j, move_id in enumerate(moves_ids):
+            if move_id in moves_dict:
+                # Fetch the move's max PP
+                max_pp = moves_dict[move_id]['PP']
+                
+                # Determine the corresponding PP address based on the move slot
+                pp_addr = [MOVE1PP[i], MOVE2PP[i], MOVE3PP[i], MOVE4PP[i]][j]
+                
+                # Restore the move's PP
+                write_mem(game, pp_addr, max_pp)
+                # print(f"Restored PP for {moves_dict[move_id]['Move']} to {max_pp}.")
+            else:
+                pass
+                # print(f"Move ID {move_id} not found in moves_dict.")
