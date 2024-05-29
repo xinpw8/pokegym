@@ -198,6 +198,7 @@ class Base:
         self.pokemon_center_save_states = []
         self.pokecenters = [41, 58, 64, 68, 81, 89, 133, 141, 154, 171, 147, 182]
         self.used_cut_on_map_n = 0
+        self.seen_hidden_objs = {}
         
         # BET ADDED nimixx api
         # Import this class for api
@@ -1390,6 +1391,7 @@ class Environment(Base):
         
         # Pyboy 2.0
         self.seen_npcs.update((k, 0) for k, _ in self.seen_npcs.items())
+        self.blackout_count = 0
         
         return self.render(), {}
 
