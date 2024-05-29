@@ -9,7 +9,7 @@ setup(
     packages=find_packages(),
     include_package_data=True,
     install_requires=[
-        'pyboy<2.0.0',
+        'pyboy>=2.0.0',
         'gymnasium>=0.29',
         'numpy',
     ],
