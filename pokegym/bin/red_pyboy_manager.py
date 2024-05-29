@@ -65,7 +65,6 @@ class PyBoyManager:
             debugging=False,
             disable_input=False,
             window_type=window_type,
-            hide_window='--quiet' in sys.argv,
         )
 
         if not self.env.headless:
@@ -82,11 +81,11 @@ class PyBoyManager:
             with open(save_file, "rb") as f:
                 self.pyboy.load_state(f)
 
-    def get_memory_value(self, addr):
-        return self.pyboy.get_memory_value(addr)
+    def memory(self, addr):
+        return self.pyboy.memory[addr]
 
     def _read_bit(self, addr, bit: int) -> bool:
-        return bin(256 + self.get_memory_value(addr))[-bit - 1] == '1'
+        return bin(256 + self.memory[addr])[-bit - 1] == '1'
     
     def _update_action_obs(self, input):
         self.action_history = np.roll(self.action_history, 1)
@@ -110,7 +109,7 @@ class PyBoyManager:
         # AI sent a dpad cmd during a chat interaction, which is allowed but just unproductive. Don't burn more
         # resources than needed to run the cmd.
         # TODO: Magic num fix when adding RAM constants commit
-        # if self.get_memory_value(0x8800) != 0:
+        # if self.memory[0x8800] != 0:
         #    frames = 23  # TODO: Need button_cmd handling before lowering this
 
         # Frames for animation vary, xy move ~22, wall collision ~13 & zone reload ~66. Wasted frames are wasted
@@ -121,7 +120,7 @@ class PyBoyManager:
             self.pyboy.tick()
 
             # TODO: Magic num fix when adding RAM constants commit
-            moving_animation = self.get_memory_value(0xC108) != 0 or self.get_memory_value(0xC107) != 0
+            moving_animation = self.memory[0xC108] != 0 or self.memory[0xC107] != 0
 
             if animation_started and moving_animation == 0:
                 continue

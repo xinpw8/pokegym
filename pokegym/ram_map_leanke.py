@@ -31,7 +31,7 @@ BAD = -1
 
 def bulba(game):
     # Get memory values from the list POKE and LEVEL
-    poke = [game.get_memory_value(a) for a in POKE]
+    poke = [game.memory[a] for a in POKE]
     if any(x in poke for x in [153, 9, 154]):
         reward = 0
     else:
@@ -1138,20 +1138,20 @@ def bit_count(bits):
 
 def read_bit(game, addr, bit) -> bool:
     # add padding so zero will read '0b100000000' instead of '0b0'
-    return bin(256 + game.get_memory_value(addr))[-bit - 1] == "1"
+    return bin(256 + game.memory[addr])[-bit - 1] == "1"
 
 def mem_val(game, addr):
-    mem = game.get_memory_value(addr)
+    mem = game.memory[addr]
     return mem
 
 def read_uint16(game, start_addr):
     """Read 2 bytes"""
-    val_256 = game.get_memory_value(start_addr)
-    val_1 = game.get_memory_value(start_addr + 1)
+    val_256 = game.memory[start_addr]
+    val_1 = game.memory[start_addr + 1]
     return 256 * val_256 + val_1
 
 def read_m(game, addr):
-    return game.get_memory_value(addr)
+    return game.memory[addr]
 
 ######################################################################################################
 
@@ -1168,16 +1168,16 @@ def get_items_in_bag(game, one_indexed=0):
     first_item = 0xD31E
     item_ids = []
     for i in range(0, 40, 2):
-        item_id = game.get_memory_value(first_item + i)
+        item_id = game.memory[first_item + i]
         if item_id == 0 or item_id == 0xff:
             break
         item_ids.append(item_id + one_indexed)
     return item_ids
 
 def position(game):
-    r_pos = game.get_memory_value(Y_POS_ADDR)
-    c_pos = game.get_memory_value(X_POS_ADDR)
-    map_n = game.get_memory_value(MAP_N_ADDR)
+    r_pos = game.memory[Y_POS_ADDR]
+    c_pos = game.memory[X_POS_ADDR]
+    map_n = game.memory[MAP_N_ADDR]
     if r_pos >= 443:
         r_pos = 444
     if r_pos <= 0:
@@ -1193,9 +1193,9 @@ def position(game):
     return r_pos, c_pos, map_n
 
 def party(game):
-    # party = [game.get_memory_value(addr) for addr in PARTY_ADDR]
-    party_size = game.get_memory_value(PARTY_SIZE_ADDR)
-    party_levels = [x for x in [game.get_memory_value(addr) for addr in PARTY_LEVEL_ADDR] if x > 0]
+    # party = [game.memory[addr] for addr in PARTY_ADDR]
+    party_size = game.memory[PARTY_SIZE_ADDR]
+    party_levels = [x for x in [game.memory[addr] for addr in PARTY_LEVEL_ADDR] if x > 0]
     return party_size, party_levels # [x for x in party_levels if x > 0]
 
 def hp(game):
@@ -1209,14 +1209,14 @@ def hp(game):
     return sum(party_hp) / sum_max_hp
 
 def used_cut(game):
-    return game.get_memory_value(WCUTTILE)
+    return game.memory[WCUTTILE]
 
 def write_mem(game, addr, value):
-    mem = game.set_memory_value(addr, value)
+    mem = game.memory[addr] = value
     return mem
 
 def badges(game):
-    badges = game.get_memory_value(BADGE_1_ADDR)
+    badges = game.memory[BADGE_1_ADDR]
     return bit_count(badges)
 
 # def update_heal_reward(self):

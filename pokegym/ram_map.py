@@ -41,6 +41,8 @@ WNUMSPRITES = 0xD4E1
 WNUMSIGNS = 0xD4B0
 WCUTTILE = 0xCD4D # $3d = tree tile; $52 = grass tile
 
+HM_ITEM_IDS = set([0xC4, 0xC5, 0xC6, 0xC7, 0xC8])
+
 # #Trainer Moves/PP counter if 00 then no move is present
 # P1MOVES = [0xD173, 0xD174, 0xD175, 0xD176]
 # P2MOVES = [0xD19F, 0xD1A0, 0xD1A1, 0xD1A2]
@@ -1442,6 +1444,19 @@ moves_dict = {
     165: {"Move": 'Struggle', 'Type': 'Normal', 'Category': 'Physical', 'Power': 1, 'PP': 50}
 }
 
+def read_m(game, addr: str | int) -> int:
+    if isinstance(addr, str):
+        _, addr = symbol_lookup(game, addr)
+    return game.memory[addr]
+
+
+def read_short(game, addr: str | int) -> int:
+    if isinstance(addr, str):
+        _, addr = symbol_lookup(game, addr)
+    data = game.memory[addr : addr + 2]
+    return (data[0] << 8) + data[1]
+
+
 def bcd(num):
     return 10 * ((num >> 4) & 0x0F) + (num & 0x0F)
 
@@ -1450,12 +1465,12 @@ def bit_count(bits):
 
 # def read_bit(game, addr, bit) -> bool:
 #     # add padding so zero will read '0b100000000' instead of '0b0'
-#     return bin(256 + game.get_memory_value(addr))[-bit - 1] == "1"
+#     return bin(256 + read_m(game, addr))[-bit - 1] == "1"
 
 def read_uint16(game, start_addr):
     """Read 2 bytes"""
-    val_256 = game.get_memory_value(start_addr)
-    val_1 = game.get_memory_value(start_addr + 1)
+    val_256 = read_m(game, start_addr)
+    val_1 = read_m(game, start_addr + 1)
     return 256 * val_256 + val_1
 
 STATUSDICT = {
@@ -1475,8 +1490,8 @@ CHP = [0xD16C, 0xD198, 0xD1C4, 0xD1F0, 0xD21C, 0xD248] # - Current HP if = 01 + 
 
 def pokemon(game):
     # Get memory values from the list POKE and LEVEL
-    memory_values = [game.get_memory_value(a) for a in POKE]
-    levels = [game.get_memory_value(a) for a in LEVEL]
+    memory_values = [read_m(game, a) for a in POKE]
+    levels = [read_m(game, a) for a in LEVEL]
 
     # Use memory values to get corresponding names from pokemon_data
     names = [entry['name'] for entry in pokemon_data if entry.get('decimal') and int(entry['decimal']) in memory_values]
@@ -1501,7 +1516,7 @@ def pokemon_l(game):
     # Iterate over each Pokémon slot
     for i in range(6):
         # Get the Pokémon and level for the current slot
-        p, l = game.get_memory_value(POKE[i]), game.get_memory_value(LEVEL[i])
+        p, l = read_m(game, POKE[i]), read_m(game, LEVEL[i])
         # Convert the Pokémon's decimal value to hex and remove the '0x' prefix
         hex_value = hex(int(p))[2:].upper()
         # Check if the hex value is in pokemon_data
@@ -1515,7 +1530,7 @@ def pokemon_l(game):
             pokemon_info[i]["moves"] = []  # Clear the moves for the current Pokémon
             for moves_address in moves_addresses:
                 # Check each of the 4 possible moves
-                move_value = game.get_memory_value(moves_address)
+                move_value = read_m(game, moves_address)
                 if move_value != 0x00:
                     # Get the move information and add the move name to the Pokémon's moves
                     move_info = moves_dict.get(move_value, {})
@@ -1524,9 +1539,9 @@ def pokemon_l(game):
     return pokemon_info
 
 def position(game):
-    r_pos = game.get_memory_value(Y_POS_ADDR)
-    c_pos = game.get_memory_value(X_POS_ADDR)
-    map_n = game.get_memory_value(MAP_N_ADDR)
+    r_pos = read_m(game, Y_POS_ADDR)
+    c_pos = read_m(game, X_POS_ADDR)
+    map_n = read_m(game, MAP_N_ADDR)
     if r_pos >= 443:
         r_pos = 444
     if r_pos <= 0:
@@ -1548,14 +1563,20 @@ def relocate(game, y, x):
     print(f'r, c, r={r}, c={c}, n={n}')
     return r_pos, c_pos
 
+
+def read_party(game):
+    _, addr = symbol_lookup(game, "wPartySpecies")
+    party_length = game.memory[symbol_lookup(game, ("wPartyCount")[1])]
+    return game.memory[addr : addr + party_length]
+
 def party(game):
-    # party = [game.get_memory_value(addr) for addr in PARTY_ADDR]
-    party_size = game.get_memory_value(PARTY_SIZE_ADDR)
-    party_levels = [x for x in [game.get_memory_value(addr) for addr in PARTY_LEVEL_ADDR] if x > 0]
+    # party = [read_m(game, addr) for addr in PARTY_ADDR]
+    party_size = read_m(game, PARTY_SIZE_ADDR)
+    party_levels = [x for x in [read_m(game, addr) for addr in PARTY_LEVEL_ADDR] if x > 0]
     return party_size, party_levels # [x for x in party_levels if x > 0]
 
 def opponent(game):
-    return [game.get_memory_value(addr) for addr in OPPONENT_LEVEL_ADDR]
+    return [read_m(game, addr) for addr in OPPONENT_LEVEL_ADDR]
 
 def oak_parcel(game):
     return read_bit(game, OAK_PARCEL_ADDR, 1)
@@ -1564,36 +1585,33 @@ def pokedex_obtained(game):
     return read_bit(game, OAK_POKEDEX_ADDR, 5)
 
 def pokemon_seen(game):
-    seen_bytes = [game.get_memory_value(addr) for addr in SEEN_POKE_ADDR]
+    seen_bytes = [read_m(game, addr) for addr in SEEN_POKE_ADDR]
     return sum([bit_count(b) for b in seen_bytes])
 
 def pokemon_caught(game):
-    caught_bytes = [game.get_memory_value(addr) for addr in CAUGHT_POKE_ADDR]
+    caught_bytes = [read_m(game, addr) for addr in CAUGHT_POKE_ADDR]
     return sum([bit_count(b) for b in caught_bytes])
 
 # BET ADDED
 def read_hp(game, start):
-    return 256 * game.get_memory_value(start) + game.get_memory_value(start+1)
+    return 256 * read_m(game, start) + read_m(game, start+1)
 
-def hp(game):
-    """Percentage of total party HP"""
-    party_hp = [read_uint16(game, addr) for addr in HP_ADDR]
-    party_max_hp = [read_uint16(game, addr) for addr in MAX_HP_ADDR]
-    # Avoid division by zero if no pokemon
-    sum_max_hp = sum(party_max_hp)
-    if sum_max_hp == 0:
-        return 1
-    return sum(party_hp) / sum_max_hp
+def read_hp_fraction(game):
+    party_size = read_m(game, "wPartyCount")
+    hp_sum = sum([read_short(game, f"wPartyMon{i+1}HP") for i in range(party_size)])
+    max_hp_sum = sum([read_short(game, f"wPartyMon{i+1}MaxHP") for i in range(party_size)])
+    max_hp_sum = max(max_hp_sum, 1)
+    return hp_sum / max_hp_sum
 
 def money(game):
     return (
-        100 * 100 * bcd(game.get_memory_value(MONEY_ADDR_1))
-        + 100 * bcd(game.get_memory_value(MONEY_ADDR_100))
-        + bcd(game.get_memory_value(MONEY_ADDR_10000))
+        100 * 100 * bcd(read_m(game, MONEY_ADDR_1))
+        + 100 * bcd(read_m(game, MONEY_ADDR_100))
+        + bcd(read_m(game, MONEY_ADDR_10000))
     )
 
 def badges(game):
-    badges = game.get_memory_value(BADGE_1_ADDR)
+    badges = read_m(game, BADGE_1_ADDR)
     return bit_count(badges)
 
 def saved_bill(game):
@@ -1603,7 +1621,7 @@ def saved_bill(game):
 def events(game):
     """Adds up all event flags, exclude museum ticket"""
     num_events = sum(
-        bit_count(game.get_memory_value(i))
+        bit_count(read_m(game, i))
         for i in range(EVENT_FLAGS_START, EVENT_FLAGS_END)
     )
     museum_ticket = int(read_bit(game, MUSEUM_TICKET_ADDR, 0))
@@ -1617,7 +1635,7 @@ def talk_to_npc(game):
     238 is text box arrow blink on
     127 is no text box arrow
     """
-    return game.get_memory_value(TEXT_BOX_ARROW_BLINK)
+    return read_m(game, TEXT_BOX_ARROW_BLINK)
 
 def is_in_battle(game):
     # D057
@@ -1625,44 +1643,44 @@ def is_in_battle(game):
     # 1 wild battle
     # 2 trainer battle
     # -1 lost battle
-    bflag = game.get_memory_value(BATTLE_FLAG)
+    bflag = read_m(game, BATTLE_FLAG)
     if bflag > 0:
         return True
     else:
         return False
     
 def if_font_is_loaded(game):
-    return game.get_memory_value(IF_FONT_IS_LOADED)
+    return read_m(game, IF_FONT_IS_LOADED)
 
     # get information for player
 def player_direction(game):
-    return game.get_memory_value(PLAYER_DIRECTION)
+    return read_m(game, PLAYER_DIRECTION)
 
 def player_y(game):
-    return game.get_memory_value(PLAYER_Y)
+    return read_m(game, PLAYER_Y)
 
 def player_x(game):
-    return game.get_memory_value(PLAYER_X)
+    return read_m(game, PLAYER_X)
 
 def map_n(game):
-    return game.get_memory_value(MAP_N_ADDR)
+    return read_m(game, MAP_N_ADDR)
 
 def npc_y(game, npc_id):
     npc_id = npc_id * 0x10
-    return game.get_memory_value(0xC104 + npc_id)
+    return read_m(game, 0xC104 + npc_id)
 
 def npc_x(game, npc_id):
     npc_id = npc_id * 0x10
-    return game.get_memory_value(0xC106 + npc_id)
+    return read_m(game, 0xC106 + npc_id)
 
 def sprites(game):
-    return game.get_memory_value(WNUMSPRITES)
+    return read_m(game, WNUMSPRITES)
 
 def signs(game):
-    return game.get_memory_value(WNUMSIGNS)
+    return read_m(game, WNUMSIGNS)
 
 def tree_tile(game):
-    return game.get_memory_value(WCUTTILE)
+    return read_m(game, WCUTTILE)
 
 def rewardable_coords(glob_c, glob_r):
             include_conditions = [
@@ -1767,28 +1785,32 @@ def bit_count(bits):
 
 # def read_bit(game, addr, bit) -> bool:
 #     # add padding so zero will read '0b100000000' instead of '0b0'
-#     return bin(256 + game.get_memory_value(addr))[-bit - 1] == "1"
+#     return bin(256 + read_m(game, addr))[-bit - 1] == "1"
 
-def read_bit(game, addr, bit) -> bool:
-    return (game.get_memory_value(addr) & (1 << bit)) != 0
+def read_bit(game, addr: str | int, bit: int) -> bool:
+    # add padding so zero will read '0b100000000' instead of '0b0'
+    return bool(int(read_m(game, addr)) & (1 << bit))
+
+def symbol_lookup(game, symbol: str) -> tuple[int, int]:
+    return game.symbol_lookup(symbol)
 
 @staticmethod
 def set_bit(value, bit):
     return value | (1<<bit)
 
 def mem_val(game, addr):
-    mem = game.get_memory_value(addr)
+    mem = read_m(game, addr)
     return mem
 
 def write_mem(game, addr, value):
-    mem = game.set_memory_value(addr, value)
+    mem = game.memory[addr] = value
     return mem
 
 def ss_anne_appeared(game):
     """
     D803 - A bunch of bits that do different things
     """
-    return game.get_memory_value(SS_ANNE)
+    return read_m(game, SS_ANNE)
 
 def got_hm01(game):
     return read_bit(game, SS_ANNE, 0)
@@ -1810,35 +1832,29 @@ def walked_out_of_dock(game):
 
 def npc_y(game, npc_id):
     npc_id = npc_id * 0x10
-    return game.get_memory_value(0xC104 + npc_id)
+    return read_m(game, 0xC104 + npc_id)
 
 def npc_x(game, npc_id):
     npc_id = npc_id * 0x10
-    return game.get_memory_value(0xC106 + npc_id)
+    return read_m(game, 0xC106 + npc_id)
 
 def used_cut(game):
-    return game.get_memory_value(WCUTTILE)
+    return read_m(game, WCUTTILE)
 
 def player_y(game):
-    return game.get_memory_value(PLAYER_Y)
+    return read_m(game, PLAYER_Y)
 
 def player_x(game):
-    return game.get_memory_value(PLAYER_X)
+    return read_m(game, PLAYER_X)
 
-def get_hm_count(game):
-    hm_ids = [0xC4, 0xC5, 0xC6, 0xC7, 0xC8]
-    items = get_items_in_bag(game)
-    total_hm_cnt = 0
-    for hm_id in hm_ids:
-        if hm_id in items:
-            total_hm_cnt += 1
-    return total_hm_cnt * 1
+def get_hm_count(game) -> int:
+    return len(HM_ITEM_IDS.intersection(get_items_in_bag(game)))
 
 def get_items_in_bag(game, one_indexed=0):
     first_item = 0xD31E
     item_ids = []
     for i in range(0, 20, 2):
-        item_id = game.get_memory_value(first_item + i)
+        item_id = read_m(game, first_item + i)
         if item_id == 0 or item_id == 0xff:
             break
         item_ids.append(item_id + one_indexed)
@@ -1848,7 +1864,7 @@ def get_items_names(game, one_indexed=0):
     first_item = 0xD31E
     item_names = []
     for i in range(0, 20, 2):
-        item_id = game.get_memory_value(first_item + i)
+        item_id = read_m(game, first_item + i)
         if item_id == 0 or item_id == 0xff:
             break
         item_id_key = item_id + one_indexed
@@ -1868,10 +1884,10 @@ def bill_capt(game):
     return sum([met_bill, used_cell_separator_on_bill, ss_ticket, met_bill_2, bill_said_use_cell_separator, left_bills_house_after_helping, got_hm01, rubbed_captains_back])
 
 def read_ram_m(game, addr) -> int:
-    return game.get_memory_value(addr.value)
+    return read_m(game, addr.value)
 
 def read_ram_bit(game, addr, bit: int) -> bool:
-    return bin(256 + game.get_memory_value(addr.value))[-bit-1] == '1'
+    return bin(256 + read_m(game, addr.value))[-bit-1] == '1'
 
 def trash_can_memory(game):
     return mem_val(game, 0xcd5b)

@@ -549,7 +549,7 @@ MOVE4 = [0xD176, 0xD1A2, 0xD1CE, 0xD1FA, 0xD226, 0xD252]
 def pokemon_l(game):
     pokemon_info = [{"slot": str(i + 1), "name": "", "level": "0", "moves": []} for i in range(6)]
     for i in range(6):
-        p, l = game.get_memory_value(POKE[i]), game.get_memory_value(LEVEL[i])
+        p, l = game.memory[POKE[i]], game.memory[LEVEL[i]]
         hex_value = hex(int(p))[2:].upper()
         matching_pokemon = next((entry for entry in pokemon_data if entry.get('hex') == hex_value), None)
         if matching_pokemon:
@@ -558,7 +558,7 @@ def pokemon_l(game):
             moves_addresses = [MOVE1[i], MOVE2[i], MOVE3[i], MOVE4[i]]
             pokemon_info[i]["moves"] = []
             for moves_address in moves_addresses:
-                move_value = game.get_memory_value(moves_address)
+                move_value = game.memory[moves_address]
                 if move_value != 0x00:
                     move_info = moves_dict.get(move_value, {})
                     move_name = move_info.get("Move", "")

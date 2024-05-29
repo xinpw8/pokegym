@@ -1,6 +1,7 @@
 from enum import IntEnum
 import numpy as np
-from pyboy import PyBoy, WindowEvent
+from pyboy.utils import WindowEvent
+from pyboy import PyBoy
 
 from .red_memory_battle import *
 from .red_memory_env import *
@@ -16,10 +17,10 @@ class PyBoyRAMInterface:
         self.pyboy = pyboy
 
     def read_memory(self, address):
-        return self.pyboy.get_memory_value(address)
+        return self.pyboy.memory[address]
 
     def write_memory(self, address, value):
-        return self.pyboy.set_memory_value(address, value)
+        self.pyboy.memory[address] = value
         
 
 class Game:
