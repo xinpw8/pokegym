@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 from pdb import set_trace as T
 from gymnasium import Env, spaces
@@ -8,7 +9,6 @@ import io, os
 import random
 from pyboy.utils import WindowEvent
 import matplotlib.pyplot as plt
-from pathlib import Path
 import mediapy as media
 
 from pokegym.pyboy_binding import (
@@ -35,12 +35,18 @@ from pokegym.bin.ram_reader.red_ram_debug import *
 from enum import IntEnum
 from multiprocessing import Manager
 from .ram_addresses import RamAddress as RAM
-import sys
+import datetime
+from datetime import datetime
+from typing import Any, Iterable, Optional
+
+# Add the path to stream_agent_wrapper
 current_dir = Path(__file__).parent
-pufferlib_dir = current_dir.parent.parent
+pufferlib_dir = current_dir.parent.parent / 'PufferLib'
 if str(pufferlib_dir) not in sys.path:
     sys.path.append(str(pufferlib_dir))
+
 from stream_agent_wrapper import StreamWrapper
+
 import datetime
 from datetime import datetime
 from typing import Any, Iterable, Optional
@@ -79,7 +85,6 @@ def play():
         rom_path="pokemon_red.gb",
         state_path=EXPERIMENTAL_PATH,
         headless=False,
-        disable_input=False,
         sound=False,
         sound_emulated=False,
         verbose=True,
@@ -108,17 +113,17 @@ def play():
     }
 
     while True:
-        # Get input from pyboy's get_input method
-        input_events = env.game.get_input()
+        # Process inputs and update game state
+        input_events = env.game.check_window_events()
         env.game.tick()
         env.render()
-        if len(input_events) == 0:
+
+        if not input_events:
             continue
-                
+
         for event in input_events:
-            event_str = str(event)
-            if event_str in window_event_to_action:
-                action_index = window_event_to_action[event_str]
+            if event in window_event_to_action:
+                action_index = window_event_to_action[event]
                 observation, reward, done, _, info = env.step(
                     action_index, # fast_video=False
                 )
@@ -167,7 +172,7 @@ class Base:
         self.randstate = os.path.join(STATE_PATH, self.state_file)
         """Creates a PokemonRed environment"""
         if state_path is None:
-            state_path = STATE_PATH + "Bulbasaur.state" # "lock_1_gym_3.state" 
+            state_path = STATE_PATH + "Bulbasaur.state" # "lock_1_gym_3.state"
         self.game, self.screen = make_env(rom_path, headless, quiet, **kwargs)
         self.initial_states = [open_state_file(state_path)]
         self.save_video = save_video
@@ -277,7 +282,7 @@ class Base:
         self.gym5_events_reward = 0
         self.gym6_events_reward = 0
         self.gym7_events_reward = 0
-        self.reward_scale = 4
+        self.reward_scale = 0.01 # 4
         self.level_reward_badge_scale = 0
         self.bill_state = 0
         self.badges = 0
@@ -606,6 +611,7 @@ class Environment(Base):
         self.poketower = [142, 143, 144, 145, 146, 147, 148]
         self.pokehideout = [199, 200, 201, 202, 203]
         self.saffron_city = [10, 70, 76, 178, 180, 182]
+        self.silphco = [181, 207, 208, 209, 210, 211, 212, 213, 233, 234, 235, 236]
         self.fighting_dojo = [177]
         self.vermilion_gym = [92]
         self.exploration_reward = 0
@@ -1031,7 +1037,7 @@ class Environment(Base):
         if self.max_level_sum < 50: # 30
             self.level_reward = 1 * self.max_level_sum
         else:
-            self.level_reward = 50 + (self.max_level_sum - 50) / 4 # 30
+            self.level_reward = 15 + (self.max_level_sum - 15) / 5 # 30
         
     def get_healing_and_death_reward(self):
         party_size, party_levels = ram_map.party(self.game)
@@ -1276,12 +1282,57 @@ class Environment(Base):
         if self.steps_since_last_new_location >= self.step_threshold:
             self.bonus_dynamic_reward_multiplier += self.bonus_dynamic_reward_increment
         self.bonus_dynamic_reward = self.bonus_dynamic_reward_multiplier * len(self.dynamic_bonus_expl_seen_coords)    
-        if map_n in self.poketower_maps and int(ram_map.read_bit(self.game, 0xD838, 7)) == 0:
-            rew = 0
-        elif map_n in self.bonus_exploration_reward_maps:
-            rew = (0.05 * len(self.seen_coords)) if self.used_cut < 1 else 0.13 * len(self.seen_coords)
+        # if map_n in self.poketower_maps and int(ram_map.read_bit(self.game, 0xD838, 7)) == 0:
+        #     rew = 0
+        # elif map_n in self.bonus_exploration_reward_maps:
+        #     rew = (0.05 * len(self.seen_coords)) if self.used_cut < 1 else 0.13 * len(self.seen_coords)
+        # else:
+        #     rew = (0.02 * len(self.seen_coords)) if self.used_cut < 1 else 0.1 * len(self.seen_coords)
+
+        # Exploration reward
+        self.seen_coords.add((r, c, map_n))
+        if int(ram_map.read_bit(self.game, 0xD81B, 7)) == 0: # pre hideout
+            if map_n in self.poketower:
+                rew = 0
+            elif map_n in self.pokehideout:
+                rew = (0.03 * len(self.seen_coords))
+            else:
+                rew = (0.02 * len(self.seen_coords))
+        elif int(ram_map.read_bit(self.game, 0xD7E0, 7)) == 0 and int(ram_map.read_bit(self.game, 0xD81B, 7)) == 1: # hideout done poketower not done
+            if map_n in self.poketower:
+                rew = (0.03 * len(self.seen_coords))
+            else:
+                rew = (0.02 * len(self.seen_coords))
+        elif int(ram_map.read_bit(self.game, 0xD76C, 0)) == 0 and int(ram_map.read_bit(self.game, 0xD7E0, 7)) == 1: # tower done no flute
+            if map_n == 149:
+                rew = (0.03 * len(self.seen_coords))
+            elif map_n in self.poketower:
+                rew = (0.01 * len(self.seen_coords))
+            elif map_n in self.pokehideout:
+                rew = (0.01 * len(self.seen_coords))
+            else:
+                rew = (0.02 * len(self.seen_coords))
+        elif int(ram_map.read_bit(self.game, 0xD838, 7)) == 0 and int(ram_map.read_bit(self.game, 0xD76C, 0)) == 1: # flute gotten pre silphco
+            if map_n in self.silphco:
+                rew = (0.03 * len(self.seen_coords))
+            elif map_n in self.poketower:
+                rew = (0.01 * len(self.seen_coords))
+            elif map_n in self.pokehideout:
+                rew = (0.01 * len(self.seen_coords))
+            else:
+                rew = (0.02 * len(self.seen_coords))
+        elif int(ram_map.read_bit(self.game, 0xD838, 7)) == 1 and int(ram_map.read_bit(self.game, 0xD76C, 0)) == 1: # flute gotten post silphco
+            if map_n in self.silphco:
+                rew = (0.01 * len(self.seen_coords))
+            elif map_n in self.poketower:
+                rew = (0.01 * len(self.seen_coords))
+            elif map_n in self.pokehideout:
+                rew = (0.01 * len(self.seen_coords))
+            else:
+                rew = (0.02 * len(self.seen_coords))
         else:
-            rew = (0.02 * len(self.seen_coords)) if self.used_cut < 1 else 0.1 * len(self.seen_coords)
+            rew = (0.02 * len(self.seen_coords))
+        
         self.exploration_reward = rew + self.bonus_dynamic_reward
         self.exploration_reward += self.shaped_exploration_reward
         self.seen_coords.add((r, c, map_n))
@@ -1487,10 +1538,9 @@ class Environment(Base):
                     "deaths": self.death_count,
                     "deaths_per_episode": self.death_count_per_episode,
                     "badges": float(self.badges),
-                    "self.badge_count": self.badge_count,
-                    "badge_1": float(self.badges >= 1),
-                    "badge_2": float(self.badges >= 2),
-                    "badge_3": float(self.badges >= 3),
+                    "badge_1": float(self.badges >= 1)/3,
+                    "badge_2": float(self.badges >= 2)/3,
+                    "badge_3": float(self.badges >= 3)/3,
                     "badge_4": float(self.badges >= 4),
                     "badge_5": float(self.badges >= 5),
                     "badge_6": float(self.badges >= 6),
@@ -1520,9 +1570,6 @@ class Environment(Base):
                     "bill_saved": self.bill_state,
                     "hm_count": self.hm_count,
                     "cut_taught": self.cut,
-                    "badge_1": float(self.badges >= 1),
-                    "badge_2": float(self.badges >= 2),
-                    "badge_3": float(self.badges >= 3),
                     "maps_explored": np.sum(self.seen_maps),
                     "party_size": self.get_party_size(),
                     "bill_capt": (self.bill_capt_reward/5),
@@ -1669,7 +1716,7 @@ class Environment(Base):
             + self.moves_obtained_reward
             + self.bill_reward
             + self.hm_reward
-            + self.level_reward
+            + self.level_reward / 10
             + self.death_reward
             + self.badges_reward
             + self.healing_reward
@@ -1678,7 +1725,7 @@ class Environment(Base):
             + self.that_guy_reward / 2
             + self.cut_coords_reward
             + self.cut_tiles_reward
-            + self.tree_distance_reward * 0.6
+            + self.tree_distance_reward * 0.2 # 0.6
             + self.dojo_reward * 5
             + self.hideout_reward * 5
             + self.has_lemonade_in_bag_reward
@@ -1691,9 +1738,6 @@ class Environment(Base):
             + (self.dojo_events_reward + self.silph_co_events_reward +
             self.hideout_events_reward + self.poke_tower_events_reward +
             self.gym3_events_reward + self.gym4_events_reward +
-            self.gym5_events_reward + self.gym6_events_reward +
-            self.gym7_events_reward)
-            + (self.gym3_events_reward + self.gym4_events_reward +
             self.gym5_events_reward + self.gym6_events_reward +
             self.gym7_events_reward)
             + self.can_reward
