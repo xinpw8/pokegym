@@ -71,7 +71,7 @@ randstate = os.path.join(STATE_PATH, state_file)
 
 STATE_PATH = __file__.rstrip("environment.py") + "current_state/"
 PLAY_STATE_PATH = __file__.rstrip("environment.py") + "just_died_mt_moon.state" # "outside_mt_moon_hp.state" # "Bulbasaur.state" # "celadon_city_cut_test.state"
-EXPERIMENTAL_PATH = STATE_PATH + "lock_1_gym_3.state"
+EXPERIMENTAL_PATH = STATE_PATH + "cut2.state"
 
 # print(f'TREE_POSOTIONS_CONVERTED = {TREE_POSITIONS_GRID_GLOBAL}')
 MAPS_WITH_TREES = set(map_n for _, _, map_n in data.TREE_POSITIONS_PIXELS)
@@ -176,66 +176,6 @@ def play():
 
     sdl2.ext.quit()
     env.close()  # Close the environment
-    
-    
-# Testing environment w/ no AI
-# pokegym.play from pufferlib folder
-def play1():
-    """Creates an environment and plays it"""
-    env = Environment(
-        rom_path="pokemon_red.gb",
-        state_path=EXPERIMENTAL_PATH,
-        headless=False,
-        sound=False,
-        sound_emulated=False,
-        verbose=True,
-    )
-
-    env = StreamWrapper(env, stream_metadata={"user": "localtesty |BET|\n"})
-    env.reset()
-    env.game.set_emulation_speed(0)
-
-    # Display available actions
-    print("Available actions:")
-    for idx, action in enumerate(VALID_ACTIONS):
-        print(f"{idx}: {action}")
-
-    # Create a mapping from WindowEvent to action index
-    window_event_to_action = {
-        "PRESS_ARROW_DOWN": 0,
-        "PRESS_ARROW_LEFT": 1,
-        "PRESS_ARROW_RIGHT": 2,
-        "PRESS_ARROW_UP": 3,
-        "PRESS_BUTTON_A": 4,
-        "PRESS_BUTTON_B": 5,
-        "PRESS_BUTTON_START": 6,
-        "PRESS_BUTTON_SELECT": 7,
-        # Add more mappings if necessary
-    }
-
-    while True:
-        # Process inputs and update game state
-        input_events = env.game.check_window_events()
-        env.game.tick()
-        env.render()
-
-        if not input_events:
-            continue
-
-        for event in input_events:
-            if event in window_event_to_action:
-                action_index = window_event_to_action[event]
-                observation, reward, done, _, info = env.step(
-                    action_index, # fast_video=False
-                )
-                
-                # Check for game over
-                if done:
-                    print(f"{done}")
-                    break
-
-                # Additional game logic or information display can go here
-                print(f"new Reward: {reward}\n")                
     
 # Initialize a Manager for shared dict for completion % tracking across all envs
 manager = Manager()
@@ -1549,9 +1489,6 @@ class Environment(Base):
 
     def step(self, action, fast_video=True):
         run_action_on_emulator(self.game, action)
-        # if self.cut == 1:
-        self.set_cut_to_bulba()
-        self.cut_if_next()
     
         self.time += 1
         
@@ -1581,7 +1518,7 @@ class Environment(Base):
         self.get_bill_reward()
         self.get_bill_capt_reward()
         self.get_hm_reward()
-        self.get_cut_reward()
+        # self.get_cut_reward()
         self.get_tree_distance_reward(r, c, map_n)   
         self.get_respawn_reward()
         self.get_money()
@@ -1601,8 +1538,8 @@ class Environment(Base):
         self.get_lock_1_use_reward()
 
         # Cut check
-        self.BET_cut_check()
-        self.cut_check(action)
+        # self.BET_cut_check()
+        # self.cut_check(action)
 
         # Other functions
         self.update_pokedex()
@@ -1611,7 +1548,7 @@ class Environment(Base):
         
         # Calculate some rewards
         self.calculate_menu_rewards()
-        self.calculate_cut_coords_and_tiles_rewards()
+        # self.calculate_cut_coords_and_tiles_rewards()
         self.calculate_seen_caught_pokemon_moves()
 
         # Final reward calculation
