@@ -77,9 +77,110 @@ EXPERIMENTAL_PATH = STATE_PATH + "lock_1_gym_3.state"
 MAPS_WITH_TREES = set(map_n for _, _, map_n in data.TREE_POSITIONS_PIXELS)
 TREE_COUNT_PER_MAP = {6: 2, 134: 3, 13: 5, 1: 2, 5: 1, 36: 1, 20: 1, 21: 4}
 
+import sdl2 
+import sdl2.ext
+
+def map_sdl2_key_to_pyboy(key):
+    """Maps SDL2 keys to PyBoy WindowEvent."""
+    mapping = {
+        sdl2.SDLK_DOWN: WindowEvent.PRESS_ARROW_DOWN,
+        sdl2.SDLK_UP: WindowEvent.PRESS_ARROW_UP,
+        sdl2.SDLK_LEFT: WindowEvent.PRESS_ARROW_LEFT,
+        sdl2.SDLK_RIGHT: WindowEvent.PRESS_ARROW_RIGHT,
+        sdl2.SDLK_z: WindowEvent.PRESS_BUTTON_A,  # Assuming 'Z' is 'A' button
+        sdl2.SDLK_x: WindowEvent.PRESS_BUTTON_B,  # Assuming 'X' is 'B' button
+        sdl2.SDLK_RETURN: WindowEvent.PRESS_BUTTON_START,
+        sdl2.SDLK_SPACE: WindowEvent.PRESS_BUTTON_SELECT
+    }
+    return mapping.get(key)
+
+def map_sdl2_key_release_to_pyboy(key):
+    """Maps SDL2 key releases to PyBoy WindowEvent."""
+    mapping = {
+        sdl2.SDLK_DOWN: WindowEvent.RELEASE_ARROW_DOWN,
+        sdl2.SDLK_UP: WindowEvent.RELEASE_ARROW_UP,
+        sdl2.SDLK_LEFT: WindowEvent.RELEASE_ARROW_LEFT,
+        sdl2.SDLK_RIGHT: WindowEvent.RELEASE_ARROW_RIGHT,
+        sdl2.SDLK_z: WindowEvent.RELEASE_BUTTON_A,  # Assuming 'Z' is 'A' button
+        sdl2.SDLK_x: WindowEvent.RELEASE_BUTTON_B,  # Assuming 'X' is 'B' button
+        sdl2.SDLK_RETURN: WindowEvent.RELEASE_BUTTON_START,
+        sdl2.SDLK_SPACE: WindowEvent.RELEASE_BUTTON_SELECT
+    }
+    return mapping.get(key)
+
+def play():
+    env = Environment(
+        rom_path="pokemon_red.gb",
+        state_path=EXPERIMENTAL_PATH,
+        headless=False,
+        sound=False,
+        sound_emulated=False,
+        verbose=True,
+    )
+
+    env = StreamWrapper(env, stream_metadata={"user": "localtesty |BET|\n"})
+    env.reset()
+    env.game.set_emulation_speed(0)
+    sdl2.ext.init()
+
+    # Create a mapping from WindowEvent to action index
+    window_event_to_action = {
+        WindowEvent.PRESS_ARROW_DOWN: 0,
+        WindowEvent.PRESS_ARROW_LEFT: 1,
+        WindowEvent.PRESS_ARROW_RIGHT: 2,
+        WindowEvent.PRESS_ARROW_UP: 3,
+        WindowEvent.PRESS_BUTTON_A: 4,
+        WindowEvent.PRESS_BUTTON_B: 5,
+        WindowEvent.PRESS_BUTTON_START: 6,
+        WindowEvent.PRESS_BUTTON_SELECT: 7,
+        # Add more mappings if necessary
+    }
+
+    # Main emulation loop
+    running = True
+    while running:
+        env.game.tick()  # Advance the emulator state
+        env.render()  # Render the game state
+
+        events = sdl2.ext.get_events()
+        if not events:
+            continue
+
+        for event in events:
+            if event.type == sdl2.SDL_QUIT:
+                running = False
+            elif event.type == sdl2.SDL_KEYDOWN:
+                pyboy_event = map_sdl2_key_to_pyboy(event.key.keysym.sym)
+                if pyboy_event:
+                    env.game.send_input(pyboy_event)  # Send mapped input to PyBoy
+                    action_index = window_event_to_action.get(pyboy_event)
+                    if action_index is not None:
+                        observation, reward, done, _, info = env.step(action_index)
+                        print(f"new Reward: {reward}\n")  # Print the reward each step
+                        if done:
+                            print(f"Game over: {done}")
+                            running = False
+                            break
+            elif event.type == sdl2.SDL_KEYUP:
+                pyboy_event = map_sdl2_key_release_to_pyboy(event.key.keysym.sym)
+                if pyboy_event:
+                    env.game.send_input(pyboy_event)  # Send mapped input to PyBoy
+                    action_index = window_event_to_action.get(pyboy_event)
+                    if action_index is not None:
+                        observation, reward, done, _, info = env.step(action_index)
+                        print(f"new Reward: {reward}\n")  # Print the reward each step
+                        if done:
+                            print(f"Game over: {done}")
+                            running = False
+                            break
+
+    sdl2.ext.quit()
+    env.close()  # Close the environment
+    
+    
 # Testing environment w/ no AI
 # pokegym.play from pufferlib folder
-def play():
+def play1():
     """Creates an environment and plays it"""
     env = Environment(
         rom_path="pokemon_red.gb",
