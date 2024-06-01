@@ -957,6 +957,39 @@ def monitor_poke_tower_events(game):
 
     return events_status
 
+
+def calculate_gym_score(game, leader_address, leader_bit, trainer_addresses, trainer_bits):
+    leader_score = GYM_LEADER * int(read_bit(game, leader_address, leader_bit))
+    trainer_scores = [GYM_TRAINER * int(read_bit(game, addr, bit)) for addr, bit in zip(trainer_addresses, trainer_bits)]
+    return sum([leader_score] + trainer_scores)
+def gym_scores(game):
+    scores = [
+        calculate_gym_score(game, 0xD755, 7, [0xD755], [2]),
+        calculate_gym_score(game, 0xD75E, 7, [0xD75E, 0xD75E], [2, 3]),
+        calculate_gym_score(game, 0xD773, 7, [0xD773]*4 + [0xD773, 0xD773], [2, 3, 4, 1, 0]),
+        calculate_gym_score(game, 0xD792, 1, [0xD77C]*7 + [0xD77D], list(range(2, 8)) + [0]),
+        calculate_gym_score(game, 0xD7B3, 1, [0xD792]*6, list(range(2, 8))),
+        calculate_gym_score(game, 0xD7B3, 1, [0xD7B3]*7 + [0xD7B4], list(range(2, 8)) + [0]),
+        calculate_gym_score(game, 0xD79A, 1, [0xD79A]*7 + [0xD79B], list(range(2, 8)) + [0]),
+        calculate_gym_score(game, 0xD751, 1, [0xD751]*7 + [0xD752]*2, list(range(2, 8)) + [0, 1], GYM_TASK * int(read_bit(game, 0xD74C, 0)))
+    ]
+    return scores
+
+# def calculate_gym_scores(game, gyms):
+#     return [GYM_LEADER * int(read_bit(game, leader, lb)) + sum(GYM_TRAINER * int(read_bit(game, addr, bit)) for addr, bit in zip(addrs, bits)) for leader, lb, addrs, bits in gyms]
+# gyms_info = [
+#     (0xD755, 7, [0xD755], [2]),
+#     (0xD75E, 7, [0xD75E, 0xD75E], [2, 3]),
+#     (0xD773, 7, [0xD773]*4 + [0xD773, 0xD773], [2, 3, 4, 1, 0]),
+#     (0xD792, 1, [0xD77C]*7 + [0xD77D], list(range(2, 8)) + [0]),
+#     (0xD7B3, 1, [0xD792]*6, list(range(2, 8))),
+#     (0xD7B3, 1, [0xD7B3]*7 + [0xD7B4], list(range(2, 8)) + [0]),
+#     (0xD79A, 1, [0xD79A]*7 + [0xD79B], list(range(2, 8)) + [0]),
+#     (0xD751, 1, [0xD751]*7 + [0xD752]*2, list(range(2, 8)) + [0, 1], GYM_TASK * int(read_bit(game, 0xD74C, 0)))
+# ]
+# scores = calculate_gym_scores(game, gyms)
+
+
 def gym1(game):
    #gym 1 Pewter	
     one = GYM_LEADER * int(read_bit(game, 0xD755, 7))
@@ -1035,6 +1068,21 @@ def gym7(game):
 
     return sum([seven, g7_1, g7_2, g7_3, g7_4, g7_5, g7_6, g7_7, ])
   
+def gym8(game):
+   #gym 8 Viridian	
+  # "0xD74C-0": "Viridian Gym Open",
+  gym_door = GYM_TASK * int(read_bit(game, 0xD74C, 0))
+  eight = GYM_LEADER * int(read_bit(game, 0xD751, 1))
+  g8_1 = GYM_TRAINER * int(read_bit(game, 0xD751, 2)) #	"0xD751-2": "Beat Viridian Gym Trainer 0",
+  g8_2 = GYM_TRAINER * int(read_bit(game, 0xD751, 3)) #	"0xD751-3": "Beat Viridian Gym Trainer 1",
+  g8_3 = GYM_TRAINER * int(read_bit(game, 0xD751, 4)) #	"0xD751-4": "Beat Viridian Gym Trainer 2",
+  g8_4 = GYM_TRAINER * int(read_bit(game, 0xD751, 5)) #	"0xD751-5": "Beat Viridian Gym Trainer 3",
+  g8_5 = GYM_TRAINER * int(read_bit(game, 0xD751, 6)) #	"0xD751-6": "Beat Viridian Gym Trainer 4",
+  g8_6 = GYM_TRAINER * int(read_bit(game, 0xD751, 7)) #	"0xD751-7": "Beat Viridian Gym Trainer 5",
+  g8_7 = GYM_TRAINER * int(read_bit(game, 0xD752, 0)) #	"0xD752-0": "Beat Viridian Gym Trainer 6",
+  g8_8 = GYM_TRAINER * int(read_bit(game, 0xD752, 1)) #	"0xD752-1": "Beat Viridian Gym Trainer 7",
+  return sum([eight, g8_1, g8_2, g8_3, g8_4, g8_5, g8_6, g8_7, g8_8, gym_door])
+  
 # BET ADDED  
 def monitor_gym3_events(game):
     events_status_gym3 = {
@@ -1097,22 +1145,6 @@ def monitor_gym7_events(game):
         'g7_7': GYM_TRAINER * int(read_bit(game, 0xD79B, 0))
     }
     return events_status_gym7 # sum(events_status_gym7.values())
-
-
-def gym8(game):
-   #gym 8 Viridian	
-  # "0xD74C-0": "Viridian Gym Open",
-  gym_door = GYM_TASK * int(read_bit(game, 0xD74C, 0))
-  eight = GYM_LEADER * int(read_bit(game, 0xD751, 1))
-  g8_1 = GYM_TRAINER * int(read_bit(game, 0xD751, 2)) #	"0xD751-2": "Beat Viridian Gym Trainer 0",
-  g8_2 = GYM_TRAINER * int(read_bit(game, 0xD751, 3)) #	"0xD751-3": "Beat Viridian Gym Trainer 1",
-  g8_3 = GYM_TRAINER * int(read_bit(game, 0xD751, 4)) #	"0xD751-4": "Beat Viridian Gym Trainer 2",
-  g8_4 = GYM_TRAINER * int(read_bit(game, 0xD751, 5)) #	"0xD751-5": "Beat Viridian Gym Trainer 3",
-  g8_5 = GYM_TRAINER * int(read_bit(game, 0xD751, 6)) #	"0xD751-6": "Beat Viridian Gym Trainer 4",
-  g8_6 = GYM_TRAINER * int(read_bit(game, 0xD751, 7)) #	"0xD751-7": "Beat Viridian Gym Trainer 5",
-  g8_7 = GYM_TRAINER * int(read_bit(game, 0xD752, 0)) #	"0xD752-0": "Beat Viridian Gym Trainer 6",
-  g8_8 = GYM_TRAINER * int(read_bit(game, 0xD752, 1)) #	"0xD752-1": "Beat Viridian Gym Trainer 7",
-  return sum([eight, g8_1, g8_2, g8_3, g8_4, g8_5, g8_6, g8_7, g8_8, gym_door])
 
 def rival(game):
   one = RIVAL * int(read_bit(game, 0xD74B, 3))
