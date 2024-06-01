@@ -23,11 +23,13 @@ from pathlib import Path
 import mediapy as media
 
 from pokegym.pyboy_binding import (
-    ACTIONS,
+    VALID_ACTIONS,
+    VALID_RELEASE_ACTIONS,
     make_env,
     open_state_file,
     load_pyboy_state,
     run_action_on_emulator,
+    hook_register,
 )
 from . import ram_map, game_map, data, ram_map_leanke
 import subprocess
@@ -112,66 +114,105 @@ MAPS_WITH_TREES = set(map_n for _, _, map_n in TREE_POSITIONS_PIXELS)
 TREE_COUNT_PER_MAP = {6: 2, 134: 3, 13: 5, 1: 2, 5: 1, 36: 1, 20: 1, 21: 4}
 
 # Testing environment w/ no AI
-# pokegym.play from pufferlib folder
+import sdl2 
+import sdl2.ext
+
+def map_sdl2_key_to_pyboy(key):
+    """Maps SDL2 keys to PyBoy WindowEvent."""
+    mapping = {
+        sdl2.SDLK_DOWN: WindowEvent.PRESS_ARROW_DOWN,
+        sdl2.SDLK_UP: WindowEvent.PRESS_ARROW_UP,
+        sdl2.SDLK_LEFT: WindowEvent.PRESS_ARROW_LEFT,
+        sdl2.SDLK_RIGHT: WindowEvent.PRESS_ARROW_RIGHT,
+        sdl2.SDLK_z: WindowEvent.PRESS_BUTTON_A,  # Assuming 'Z' is 'A' button
+        sdl2.SDLK_x: WindowEvent.PRESS_BUTTON_B,  # Assuming 'X' is 'B' button
+        sdl2.SDLK_RETURN: WindowEvent.PRESS_BUTTON_START,
+        sdl2.SDLK_SPACE: WindowEvent.PRESS_BUTTON_SELECT
+    }
+    return mapping.get(key)
+
+def map_sdl2_key_release_to_pyboy(key):
+    """Maps SDL2 key releases to PyBoy WindowEvent."""
+    mapping = {
+        sdl2.SDLK_DOWN: WindowEvent.RELEASE_ARROW_DOWN,
+        sdl2.SDLK_UP: WindowEvent.RELEASE_ARROW_UP,
+        sdl2.SDLK_LEFT: WindowEvent.RELEASE_ARROW_LEFT,
+        sdl2.SDLK_RIGHT: WindowEvent.RELEASE_ARROW_RIGHT,
+        sdl2.SDLK_z: WindowEvent.RELEASE_BUTTON_A,  # Assuming 'Z' is 'A' button
+        sdl2.SDLK_x: WindowEvent.RELEASE_BUTTON_B,  # Assuming 'X' is 'B' button
+        sdl2.SDLK_RETURN: WindowEvent.RELEASE_BUTTON_START,
+        sdl2.SDLK_SPACE: WindowEvent.RELEASE_BUTTON_SELECT
+    }
+    return mapping.get(key)
+
 def play():
-    """Creates an environment and plays it"""
     env = Environment(
         rom_path="pokemon_red.gb",
         state_path=EXPERIMENTAL_PATH,
         headless=False,
-        disable_input=False,
         sound=False,
         sound_emulated=False,
         verbose=True,
     )
 
     env = StreamWrapper(env, stream_metadata={"user": "localtesty |BET|\n"})
-
     env.reset()
     env.game.set_emulation_speed(0)
-
-    # Display available actions
-    print("Available actions:")
-    for idx, action in enumerate(ACTIONS):
-        print(f"{idx}: {action}")
+    sdl2.ext.init()
 
     # Create a mapping from WindowEvent to action index
     window_event_to_action = {
-        "PRESS_ARROW_DOWN": 0,
-        "PRESS_ARROW_LEFT": 1,
-        "PRESS_ARROW_RIGHT": 2,
-        "PRESS_ARROW_UP": 3,
-        "PRESS_BUTTON_A": 4,
-        "PRESS_BUTTON_B": 5,
-        "PRESS_BUTTON_START": 6,
-        "PRESS_BUTTON_SELECT": 7,
+        WindowEvent.PRESS_ARROW_DOWN: 0,
+        WindowEvent.PRESS_ARROW_LEFT: 1,
+        WindowEvent.PRESS_ARROW_RIGHT: 2,
+        WindowEvent.PRESS_ARROW_UP: 3,
+        WindowEvent.PRESS_BUTTON_A: 4,
+        WindowEvent.PRESS_BUTTON_B: 5,
+        WindowEvent.PRESS_BUTTON_START: 6,
+        WindowEvent.PRESS_BUTTON_SELECT: 7,
         # Add more mappings if necessary
     }
 
-    while True:
-        # Get input from pyboy's get_input method
-        input_events = env.game.get_input()
-        env.game.tick()
-        env.render()
-        if len(input_events) == 0:
-            continue
-                
-        for event in input_events:
-            event_str = str(event)
-            if event_str in window_event_to_action:
-                action_index = window_event_to_action[event_str]
-                observation, reward, done, _, info = env.step(
-                    action_index, # fast_video=False
-                )
-                
-                # Check for game over
-                if done:
-                    print(f"{done}")
-                    break
+    # Main emulation loop
+    running = True
+    while running:
+        env.game.tick()  # Advance the emulator state
+        env.render()  # Render the game state
 
-                # Additional game logic or information display can go here
-                print(f"new Reward: {reward}\n")
-                
+        events = sdl2.ext.get_events()
+        if not events:
+            continue
+
+        for event in events:
+            if event.type == sdl2.SDL_QUIT:
+                running = False
+            elif event.type == sdl2.SDL_KEYDOWN:
+                pyboy_event = map_sdl2_key_to_pyboy(event.key.keysym.sym)
+                if pyboy_event:
+                    env.game.send_input(pyboy_event)  # Send mapped input to PyBoy
+                    action_index = window_event_to_action.get(pyboy_event)
+                    if action_index is not None:
+                        observation, reward, done, _, info = env.step(action_index)
+                        print(f"new Reward: {reward}\n")  # Print the reward each step
+                        if done:
+                            print(f"Game over: {done}")
+                            running = False
+                            break
+            elif event.type == sdl2.SDL_KEYUP:
+                pyboy_event = map_sdl2_key_release_to_pyboy(event.key.keysym.sym)
+                if pyboy_event:
+                    env.game.send_input(pyboy_event)  # Send mapped input to PyBoy
+                    action_index = window_event_to_action.get(pyboy_event)
+                    if action_index is not None:
+                        observation, reward, done, _, info = env.step(action_index)
+                        print(f"new Reward: {reward}\n")  # Print the reward each step
+                        if done:
+                            print(f"Game over: {done}")
+                            running = False
+                            break
+
+    sdl2.ext.quit()
+    env.close()  # Close the environment                
     
 # Initialize a Manager for shared dict for completion % tracking across all envs
 manager = Manager()
@@ -248,7 +289,7 @@ class Base:
         # Import this class for api
         self.api = Game(self.game)
         
-        R, C = self.screen.raw_screen_buffer_dims()
+        R, C = self.screen.ndarray.shape[:2]
         self.obs_size = (R // 2, C // 2) # 72, 80, 3
 
         if self.use_screen_memory:
@@ -262,7 +303,8 @@ class Base:
         self.observation_space = spaces.Box(
             low=0, high=255, dtype=np.uint8, shape=self.obs_size
         )
-        self.action_space = spaces.Discrete(len(ACTIONS))
+        self.action_space = spaces.Discrete(len(VALID_ACTIONS))
+        self.register_hooks()
         
         # BET ADDED
         # BET ADDED TREE INSTANTIATIONS
@@ -399,6 +441,22 @@ class Base:
         self.rubbed_captains_back = 0
         self.rubbed_captains_back_reward = 0
 
+    def register_hooks(self):
+        hook_register(self.game, None, "DisplayStartMenu", self.start_menu_hook, None)
+        hook_register(self.game, None, "RedisplayStartMenu", self.start_menu_hook, None)
+        hook_register(self.game, None, "StartMenu_Item", self.item_menu_hook, None)
+        hook_register(self.game, None, "StartMenu_Pokemon", self.pokemon_menu_hook, None)
+        hook_register(self.game, None, "StartMenu_Pokemon.choseStats", self.chose_stats_hook, None)
+        hook_register(self.game, None, "StartMenu_Item.choseItem", self.chose_item_hook, None)
+        hook_register(self.game, None, "DisplayTextID.spriteHandling", self.sprite_hook, None)
+        hook_register(self.game, 
+            None, "CheckForHiddenObject.foundMatchingObject", self.hidden_object_hook, None
+        )
+        hook_register(self.game, None, "HandleBlackOut", self.blackout_hook, None)
+        hook_register(self.game, None, "SetLastBlackoutMap.done", self.blackout_update_hook, None)
+        # hook_register(self.game, None, "UsedCut.nothingToCut", self.cut_hook, context=True)
+        # hook_register(self.game, None, "UsedCut.canCut", self.cut_hook, context=False)
+    
     def bet_fixed_window(self, glob_r, glob_c):
         """Create a centered window around the player's position that tracks explored coords across all maps"""
         half_window_height = 72 // 2
@@ -508,7 +566,7 @@ class Base:
             # then concatenates along the 3rd-dimensional axis (image channel)
             return np.concatenate(
                 (
-                    self.screen.screen_ndarray()[::2, ::2],
+                    self.screen.ndarray[::2, ::2, :3],
                     bet_window,
                     # self.get_fixed_window(mmap, r, c, self.observation_space.shape),
                 ),
@@ -539,6 +597,52 @@ class Base:
 
     # BET ADDED TREE OBSERVATIONS
     # into Vermilion gym tree reward reset
+    # PyBoy hooks
+    def hidden_object_hook(self, *args, **kwargs):
+        hidden_object_addr = ram_map.symbol_lookup(self.game, "wHiddenObjectIndex")[1]
+        hidden_object_id = ram_map.read_m(self.game, hidden_object_addr)
+
+        map_id_addr = ram_map.symbol_lookup(self.game, "wCurMap")[1]
+        map_id = ram_map.read_m(self.game, map_id_addr)
+
+        self.seen_hidden_objs[(map_id, hidden_object_id)] = 1
+
+
+    def sprite_hook(self, *args, **kwargs):
+        sprite_id_addr = ram_map.symbol_lookup(self.game, "hSpriteIndexOrTextID")[1]
+        sprite_id = ram_map.read_m(self.game, sprite_id_addr)
+        
+        map_id_addr = ram_map.symbol_lookup(self.game, "wCurMap")[1]
+        map_id = ram_map.read_m(self.game, map_id_addr)
+        
+        self.seen_npcs[(map_id, sprite_id)] = 1
+
+    def start_menu_hook(self, *args, **kwargs):
+        if ram_map.read_m(self.game, "wIsInBattle") == 0:
+            self.seen_start_menu = 1
+
+    def item_menu_hook(self, *args, **kwargs):
+        if ram_map.read_m(self.game, "wIsInBattle") == 0:
+            self.seen_bag_menu = 1
+
+    def pokemon_menu_hook(self, *args, **kwargs):
+        if ram_map.read_m(self.game, "wIsInBattle") == 0:
+            self.seen_pokemon_menu = 1
+
+    def chose_stats_hook(self, *args, **kwargs):
+        if ram_map.read_m(self.game, "wIsInBattle") == 0:
+            self.seen_stats_menu = 1
+
+    def chose_item_hook(self, *args, **kwargs):
+        if ram_map.read_m(self.game, "wIsInBattle") == 0:
+            self.seen_action_bag_menu = 1
+
+    def blackout_hook(self, *args, **kwargs):
+        self.blackout_count += 1
+
+    def blackout_update_hook(self, *args, **kwargs):
+        self.blackout_check = ram_map.read_m(self.game, "wLastBlackoutMap")
+    
     def reset_rewarded_distances_for_vermilion(self):
         if self.badges >= 3:
             if not hasattr(self, 'vermilion_reset_done'):
@@ -687,7 +791,7 @@ class Base:
     #     print(f"Fixed window image saved to {file_path}")
 
     def step(self, action):
-        run_action_on_emulator(self.game, self.screen, ACTIONS[action], self.headless)
+        run_action_on_emulator(self.game, self.screen, action, self.headless)
         return self.render(), 0, False, False, {}
 
     def video(self):
@@ -880,8 +984,8 @@ class Environment(Base):
     
     def update_pokedex(self):
         for i in range(0xD30A - 0xD2F7):
-            caught_mem = self.game.get_memory_value(i + 0xD2F7)
-            seen_mem = self.game.get_memory_value(i + 0xD30A)
+            caught_mem = ram_map.read_m(self, i + 0xD2F7)
+            seen_mem = ram_map.read_m(self, i + 0xD30A)
             for j in range(8):
                 self.caught_pokemon[8*i + j] = 1 if caught_mem & (1 << j) else 0
                 self.seen_pokemon[8*i + j] = 1 if seen_mem & (1 << j) else 0   
@@ -889,9 +993,9 @@ class Environment(Base):
     def update_moves_obtained(self):
         # Scan party
         for i in [0xD16B, 0xD197, 0xD1C3, 0xD1EF, 0xD21B, 0xD247]:
-            if self.game.get_memory_value(i) != 0:
+            if ram_map.read_m(self, i) != 0:
                 for j in range(4):
-                    move_id = self.game.get_memory_value(i + j + 8)
+                    move_id = ram_map.read_m(self, i + j + 8)
                     if move_id != 0:
                         if move_id != 0:
                             self.moves_obtained[move_id] = 1
@@ -900,11 +1004,11 @@ class Environment(Base):
         # Scan current box (since the box doesn't auto increment in pokemon red)
         num_moves = 4
         box_struct_length = 25 * num_moves * 2
-        for i in range(self.game.get_memory_value(0xda80)):
+        for i in range(ram_map.read_m(self, 0xda80)):
             offset = i*box_struct_length + 0xda96
-            if self.game.get_memory_value(offset) != 0:
+            if ram_map.read_m(self, offset) != 0:
                 for j in range(4):
-                    move_id = self.game.get_memory_value(offset + j + 8)
+                    move_id = ram_map.read_m(self, offset + j + 8)
                     if move_id != 0:
                         self.moves_obtained[move_id] = 1
                         
@@ -914,7 +1018,7 @@ class Environment(Base):
         # item1, quantity1, item2, quantity2, ...
         item_ids = []
         for i in range(0, 20, 2):
-            item_id = self.game.get_memory_value(first_item + i)
+            item_id = ram_map.read_m(self, first_item + i)
             if item_id == 0 or item_id == 0xff:
                 break
             item_ids.append(item_id + one_indexed)
@@ -1167,7 +1271,7 @@ class Environment(Base):
         return max(
             sum(
                 [
-                    ram_map.bit_count(self.game.get_memory_value(i))
+                    ram_map.bit_count(ram_map.read_m(self, i))
                     for i in range(ram_map.EVENT_FLAGS_START, ram_map.EVENT_FLAGS_START + ram_map.EVENTS_FLAGS_LENGTH)
                 ]
             )
@@ -1919,7 +2023,7 @@ class Environment(Base):
         # 0xCFCB - wUpdateSpritesEnabled
         if ram_map.mem_val(self.game, 0xD057) == 0: # is_in_battle if 1
             if self.cut == 1:
-                player_direction = self.game.get_memory_value(0xC109)
+                player_direction = ram_map.read_m(self, 0xC109)
                 x, y, map_id = self.get_game_coords()  # x, y, map_id
                 if player_direction == 0:  # down
                     coords = (x, y + 1, map_id)
@@ -1931,12 +2035,12 @@ class Environment(Base):
                     coords = (x + 1, y, map_id)
                 self.cut_state.append(
                     (
-                        self.game.get_memory_value(0xCFC6),
-                        self.game.get_memory_value(0xCFCB),
-                        self.game.get_memory_value(0xCD6A),
-                        self.game.get_memory_value(0xD367),
-                        self.game.get_memory_value(0xD125),
-                        self.game.get_memory_value(0xCD3D),
+                        ram_map.read_m(self, 0xCFC6),
+                        ram_map.read_m(self, 0xCFCB),
+                        ram_map.read_m(self, 0xCD6A),
+                        ram_map.read_m(self, 0xD367),
+                        ram_map.read_m(self, 0xD125),
+                        ram_map.read_m(self, 0xCD3D),
                     )
                 )
                 if tuple(list(self.cut_state)[1:]) in CUT_SEQ:
@@ -2089,7 +2193,7 @@ class Environment(Base):
             self.shaped_exploration_reward = 0
         
     def get_respawn_reward(self):
-        center = self.game.get_memory_value(0xD719)
+        center = ram_map.read_m(self, 0xD719)
         self.respawn.add(center)
         self.len_respawn_reward = len(self.respawn)
         return self.len_respawn_reward # * 5
@@ -2284,7 +2388,8 @@ class Environment(Base):
         return self.render(), {}
 
     def step(self, action, fast_video=True):
-        run_action_on_emulator(self.game, self.screen, ACTIONS[action], self.headless, fast_video=fast_video,)
+        
+        run_action_on_emulator(self.game, action)
         self.time += 1
         
         if self.save_video:
@@ -2395,7 +2500,7 @@ class Environment(Base):
                     "map": map_n,
                     # "map_location": self.get_map_location(map_n),
                     # "max_map_progress": self.max_map_progress,
-                    "pcount": int(self.game.get_memory_value(0xD163)),
+                    "pcount": int(ram_map.read_m(self, 0xD163)),
                     "levels": self.get_party_levels(),
                     "levels_sum": sum(self.get_party_levels()),
                     # "ptypes": self.read_party(),
@@ -2660,7 +2765,7 @@ class Environment(Base):
     # THIS SECTION CONTAINS UNUSED FNS
     # Not currently used
     def prepare_info(self):
-        levels = [self.game.get_memory_value(a) for a in [0xD18C, 0xD1B8, 0xD1E4, 0xD210, 0xD23C, 0xD268]]
+        levels = [ram_map.read_m(self, a) for a in [0xD18C, 0xD1B8, 0xD1E4, 0xD210, 0xD23C, 0xD268]]
         badges = self.get_badges_reward()
         party_size, party_levels = self.get_level_reward()
         money = self.get_money()
@@ -2704,7 +2809,7 @@ class Environment(Base):
             "x": c,
             "y": r,
             "map": map_n,
-            "pcount": int(self.game.get_memory_value(0xD163)),
+            "pcount": int(ram_map.read_m(self, 0xD163)),
             "levels": levels,
             "levels_sum": sum(levels),
             "coord": np.sum(self.counts_map),
