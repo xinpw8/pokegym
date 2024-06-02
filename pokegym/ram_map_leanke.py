@@ -1168,23 +1168,28 @@ def bcd(num):
 def bit_count(bits):
     return bin(bits).count("1")
 
-def read_bit(game, addr, bit) -> bool:
+
+def read_bit(game, addr: str | int, bit: int) -> bool:
     # add padding so zero will read '0b100000000' instead of '0b0'
-    return bin(256 + game.get_memory_value(addr))[-bit - 1] == "1"
+    return bool(int(read_m(game, addr)) & (1 << bit))
 
 def mem_val(game, addr):
-    mem = game.get_memory_value(addr)
+    mem = read_m(game, addr)
     return mem
 
 def read_uint16(game, start_addr):
     """Read 2 bytes"""
-    val_256 = game.get_memory_value(start_addr)
-    val_1 = game.get_memory_value(start_addr + 1)
+    val_256 = read_m(game, start_addr)
+    val_1 = read_m(game, start_addr + 1)
     return 256 * val_256 + val_1
 
-def read_m(game, addr):
-    return game.get_memory_value(addr)
+def symbol_lookup(game, symbol: str) -> tuple[int, int]:
+    return game.symbol_lookup(symbol)
 
+def read_m(game, addr: str | int) -> int:
+    if isinstance(addr, str):
+        _, addr = symbol_lookup(game, addr)
+    return game.memory[addr]
 ######################################################################################################
 
 def get_hm_count(game):
@@ -1199,17 +1204,17 @@ def get_hm_count(game):
 def get_items_in_bag(game, one_indexed=0):
     first_item = 0xD31E
     item_ids = []
-    for i in range(0, 40, 2):
-        item_id = game.get_memory_value(first_item + i)
+    for i in range(0, 20, 2):
+        item_id = read_m(game, first_item + i)
         if item_id == 0 or item_id == 0xff:
             break
         item_ids.append(item_id + one_indexed)
     return item_ids
 
 def position(game):
-    r_pos = game.get_memory_value(Y_POS_ADDR)
-    c_pos = game.get_memory_value(X_POS_ADDR)
-    map_n = game.get_memory_value(MAP_N_ADDR)
+    r_pos = read_m(game, Y_POS_ADDR)
+    c_pos = read_m(game, X_POS_ADDR)
+    map_n = read_m(game, MAP_N_ADDR)
     if r_pos >= 443:
         r_pos = 444
     if r_pos <= 0:
@@ -1225,30 +1230,33 @@ def position(game):
     return r_pos, c_pos, map_n
 
 def party(game):
-    # party = [game.get_memory_value(addr) for addr in PARTY_ADDR]
-    party_size = game.get_memory_value(PARTY_SIZE_ADDR)
-    party_levels = [x for x in [game.get_memory_value(addr) for addr in PARTY_LEVEL_ADDR] if x > 0]
+    # party = [read_m(game, addr) for addr in PARTY_ADDR]
+    party_size = read_m(game, PARTY_SIZE_ADDR)
+    party_levels = [x for x in [read_m(game, addr) for addr in PARTY_LEVEL_ADDR] if x > 0]
     return party_size, party_levels # [x for x in party_levels if x > 0]
 
-def hp(game):
-    """Percentage of total party HP"""
-    party_hp = [read_uint16(game, addr) for addr in HP_ADDR]
-    party_max_hp = [read_uint16(game, addr) for addr in MAX_HP_ADDR]
-    # Avoid division by zero if no pokemon
-    sum_max_hp = sum(party_max_hp)
-    if sum_max_hp == 0:
-        return 1
-    return sum(party_hp) / sum_max_hp
+def read_short(game, addr: str | int) -> int:
+    if isinstance(addr, str):
+        _, addr = symbol_lookup(game, addr)
+    data = game.memory[addr : addr + 2]
+    return (data[0] << 8) + data[1]
+
+def read_hp_fraction(game):
+    party_size = read_m(game, "wPartyCount")
+    hp_sum = sum([read_short(game, f"wPartyMon{i+1}HP") for i in range(party_size)])
+    max_hp_sum = sum([read_short(game, f"wPartyMon{i+1}MaxHP") for i in range(party_size)])
+    max_hp_sum = max(max_hp_sum, 1)
+    return hp_sum / max_hp_sum
 
 def used_cut(game):
-    return game.get_memory_value(WCUTTILE)
+    return read_m(game, WCUTTILE)
 
 def write_mem(game, addr, value):
-    mem = game.set_memory_value(addr, value)
+    mem = game.memory[addr] = value
     return mem
 
 def badges(game):
-    badges = game.get_memory_value(BADGE_1_ADDR)
+    badges = read_m(game, BADGE_1_ADDR)
     return bit_count(badges)
 
 # def update_heal_reward(self):

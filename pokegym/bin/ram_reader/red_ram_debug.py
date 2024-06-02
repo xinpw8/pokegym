@@ -1,5 +1,6 @@
 from os.path import exists
-from pyboy import PyBoy, WindowEvent
+from pyboy import PyBoy
+from pyboy.utils import WindowEvent
 
 from .red_ram_api import *
 
