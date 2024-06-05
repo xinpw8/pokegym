@@ -102,11 +102,25 @@ def check_if_party_has_cut(pyboy) -> bool:
             return True
     return False
 
-def cut_if_next(pyboy):
+def check_if_on_route_10(pyboy) -> bool:
+    wCurMap = pyboy.symbol_lookup("wCurMap")[1]
+    return pyboy.memory[wCurMap] == 0x0A
+
+# Global variable to track cooldown
+CUT_COOLDOWN = 1000
+last_cut_step = -CUT_COOLDOWN
+
+def cut_if_next(pyboy, current_step):
+    global last_cut_step
+
+    # Check cooldown
+    if current_step - last_cut_step < CUT_COOLDOWN:
+        return
+
     # https://github.com/pret/pokered/blob/d38cf5281a902b4bd167a46a7c9fd9db436484a7/constants/tileset_constants.asm#L11C8-L11C11
     in_erika_gym = pyboy.memory[pyboy.symbol_lookup("wCurMapTileset")[1]] == 7
     in_overworld = pyboy.memory[pyboy.symbol_lookup("wCurMapTileset")[1]] == 0
-    if in_erika_gym or in_overworld:
+    if (in_erika_gym or in_overworld) and ram_map.badges(pyboy) >= 2:
         wTileMap = pyboy.symbol_lookup("wTileMap")[1]
         tileMap = pyboy.memory[wTileMap : wTileMap + 20 * 18]
         tileMap = np.array(tileMap, dtype=np.uint8)
@@ -146,7 +160,9 @@ def cut_if_next(pyboy):
         pyboy.tick(ACTION_FREQ, render=True)
         # scroll to pokemon
         # 1 is the item index for pokemon
-        while pyboy.memory[pyboy.symbol_lookup("wCurrentMenuItem")[1]] != 1:
+        for _ in range(24):
+            if pyboy.memory[pyboy.symbol_lookup("wCurrentMenuItem")[1]] != 1:
+                break
             pyboy.send_input(WindowEvent.PRESS_ARROW_DOWN)
             pyboy.send_input(WindowEvent.RELEASE_ARROW_DOWN, delay=8)
             pyboy.tick(ACTION_FREQ, render=True)
@@ -160,7 +176,7 @@ def cut_if_next(pyboy):
             pyboy.send_input(WindowEvent.RELEASE_ARROW_DOWN, delay=8)
             pyboy.tick(ACTION_FREQ, render=True)
             party_mon = pyboy.memory[pyboy.symbol_lookup("wCurrentMenuItem")[1]]
-            _, addr = pyboy.symbol_lookup(f"wPartyMon{party_mon+1}Moves")
+            _, addr = pyboy.symbol_lookup(f"wPartyMon{party_mon%6+1}Moves")
             if 15 in pyboy.memory[addr : addr + 4]:
                 break
 
@@ -170,7 +186,10 @@ def cut_if_next(pyboy):
             pyboy.send_input(WindowEvent.RELEASE_BUTTON_A, delay=8)
             pyboy.tick(4 * ACTION_FREQ, render=True)
 
-def run_action_on_emulator(pyboy, action):
+        # Update the last_cut_step after executing the cut sequence
+        last_cut_step = current_step
+
+def run_action_on_emulator(pyboy, action, current_step):
     if not read_bit(pyboy, "wd730", 6):
         # if not instant text speed, then set it to instant
         txt_value = read_m(pyboy, "wd730")
@@ -184,4 +203,5 @@ def run_action_on_emulator(pyboy, action):
     # if save_video and fast_video:
     #     add_video_frame()
     if check_if_party_has_cut(pyboy):
-        cut_if_next(pyboy)
+        cut_if_next(pyboy, current_step)
+        

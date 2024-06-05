@@ -1454,6 +1454,8 @@ def read_m(game, addr: str | int) -> int:
         return game.memory[game.symbol_lookup(addr)[1]]
     return game.memory[addr]
 
+def memory(pyboy, addr):
+    return pyboy.memory[addr]
 
 def read_short(game, addr: str | int) -> int:
     if isinstance(addr, str):

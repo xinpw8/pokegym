@@ -233,7 +233,7 @@ class Base:
         rom_path="pokemon_red.gb",
         state_path=None, # None
         headless=True,
-        save_video=False,
+        save_video=True,
         quiet=False,
         **kwargs,
     ):
@@ -292,9 +292,9 @@ class Base:
         self.obs_size = (R // 2, C // 2) # 72, 80, 3
 
         if self.use_screen_memory:
-            # self.screen_memory = defaultdict(
-            #     lambda: np.zeros((255, 255, 1), dtype=np.uint8)
-            # )
+            self.screen_memory = defaultdict(
+                lambda: np.zeros((255, 255, 1), dtype=np.uint8)
+            )
             # self.obs_size += (5,)
             self.obs_size += (4,)
         else:
@@ -396,6 +396,12 @@ class Base:
         self.vermilion_city_gym_map = [92]
         self.advanced_gym_maps = [92, 134, 157, 166, 178] # Vermilion, Celadon, Fuchsia, Cinnabar, Saffron
         self.routes_9_and_10_and_rock_tunnel = [20, 21, 82, 232]
+        self.route_9 = [20]
+        self.route_10 = [21]
+        self.rock_tunnel = [82, 232]
+        self.route_9_completed = False
+        self.route_10_completed = False
+        self.rock_tunnel_completed = False
         self.bonus_exploration_reward_maps = self.rocket_hideout_maps + self.poketower_maps + self.silph_co_maps + self.vermilion_city_gym_map + self.advanced_gym_maps
 
         
@@ -488,17 +494,17 @@ class Base:
         self.bet_seen_coords = set()
         self.load_and_apply_region_data() 
                 
-    # def update_seen_coords(self):
-    #     for (y, x) in self.bet_seen_coords:
-    #         if 0 <= y < 444 and 0 <= x < 436:
-    #             self.global_map[y, x] = 255  # Mark visited locations white
-    
     def update_seen_coords(self):
-        mask = np.zeros((444, 436), dtype=bool)        
-        valid_coords = [(y, x) for (y, x) in self.bet_seen_coords if 0 <= y < 444 and 0 <= x < 436]
-        ys, xs = zip(*valid_coords)
-        mask[ys, xs] = True
-        self.global_map[mask] = 255  # Mark visited locations white
+        for (y, x) in self.bet_seen_coords:
+            if 0 <= y < 444 and 0 <= x < 436:
+                self.global_map[y, x] = 255  # Mark visited locations white
+    
+    # def update_seen_coords(self):
+    #     mask = np.zeros((444, 436), dtype=bool)        
+    #     valid_coords = [(y, x) for (y, x) in self.bet_seen_coords if 0 <= y < 444 and 0 <= x < 436]
+    #     ys, xs = zip(*valid_coords)
+    #     mask[ys, xs] = True
+    #     self.global_map[mask] = 255  # Mark visited locations white
 
     
     def save_screenshot(self, event, map_n):
@@ -557,50 +563,51 @@ class Base:
             mode="constant",
         )
 
-    def render(self): # , bet_window):
-        if self.use_screen_memory:
-            r, c, map_n = ram_map.position(self.game)
-            
-            # # Update tile map
-            # mmap = self.screen_memory[map_n]
-            # if 0 <= r <= 254 and 0 <= c <= 254:
-            #     mmap[r, c] = 255
-
-            self.update_seen_coords()
-            glob_r, glob_c = game_map.local_to_global(r, c, map_n)
-            bet_window = self.bet_fixed_window(glob_r, glob_c) if self.badges >= 3 else self.get_fixed_window(self.global_map, glob_r, glob_c, self.observation_space.shape)
-            # Downsamples the screen and retrieves a fixed window from mmap,
-            # then concatenates along the 3rd-dimensional axis (image channel)
-            return np.concatenate(
-                (
-                    self.screen.ndarray[::2, ::2, :3],
-                    bet_window,
-                    # self.get_fixed_window(mmap, r, c, self.observation_space.shape),
-                ),
-                axis=2,
-            )
-        else:
-            return self.screen.screen_ndarray()[::2, ::2]
-
-    # def render(self):
+    # def render(self): # , bet_window):
     #     if self.use_screen_memory:
     #         r, c, map_n = ram_map.position(self.game)
+            
     #         # Update tile map
     #         mmap = self.screen_memory[map_n]
     #         if 0 <= r <= 254 and 0 <= c <= 254:
     #             mmap[r, c] = 255
 
+    #         # self.update_seen_coords()
+    #         glob_r, glob_c = game_map.local_to_global(r, c, map_n)
+    #         bet_window = self.get_fixed_window(mmap, glob_r, glob_c, self.observation_space.shape)
+    #         # bet_window = self.bet_fixed_window(glob_r, glob_c) if self.badges >= 3 else self.get_fixed_window(self.global_map, glob_r, glob_c, self.observation_space.shape)
     #         # Downsamples the screen and retrieves a fixed window from mmap,
     #         # then concatenates along the 3rd-dimensional axis (image channel)
     #         return np.concatenate(
     #             (
-    #                 self.screen.screen_ndarray()[::2, ::2],
-    #                 self.get_fixed_window(mmap, r, c, self.observation_space.shape),
+    #                 self.screen.ndarray[::2, ::2, :3],
+    #                 bet_window,
+    #                 # self.get_fixed_window(mmap, r, c, self.observation_space.shape),
     #             ),
     #             axis=2,
     #         )
     #     else:
     #         return self.screen.screen_ndarray()[::2, ::2]
+
+    def render(self):
+        if self.use_screen_memory:
+            r, c, map_n = ram_map.position(self.game)
+            # Update tile map
+            mmap = self.screen_memory[map_n]
+            if 0 <= r <= 254 and 0 <= c <= 254:
+                mmap[r, c] = 255
+
+            # Downsamples the screen and retrieves a fixed window from mmap,
+            # then concatenates along the 3rd-dimensional axis (image channel)
+            return np.concatenate(
+                (
+                    self.screen.ndarray[::2, ::2, :3],
+                    self.get_fixed_window(mmap, r, c, self.observation_space.shape),
+                ),
+                axis=2,
+            )
+        else:
+            return self.screen.ndarray[::2, ::2, :3]
 
     # BET ADDED TREE OBSERVATIONS
     # into Vermilion gym tree reward reset
@@ -690,6 +697,18 @@ class Base:
         _, _, map_n = ram_map.position(self.game)
         if map_n in self.routes_9_and_10_and_rock_tunnel:
             self.seen_routes_9_and_10_and_rock_tunnel = True
+        if map_n in self.route_9:
+            self.seen_route_9 = True
+        if map_n in self.route_10:
+            self.seen_route_10 = True
+        if map_n in self.rock_tunnel:
+            self.seen_rock_tunnel = True
+        if map_n in self.route_10 and self.seen_route_9:
+            self.route_9_completed = True
+        if map_n in self.rock_tunnel and self.seen_route_10:
+            self.route_10_completed = True
+        if map_n in [4] and self.seen_rock_tunnel: # Lavender Town
+            self.rock_tunnel_completed = True
     
     def detect_and_reward_trees(self, player_grid_pos, map_n, vision_range=5):
         if map_n not in MAPS_WITH_TREES:
@@ -834,7 +853,7 @@ class Environment(Base):
         rom_path="pokemon_red.gb",
         state_path=None, # none
         headless=True,
-        save_video=False,
+        save_video=True,
         quiet=False,
         verbose=False,
         **kwargs,
@@ -876,7 +895,6 @@ class Environment(Base):
         self.rewarded_position = (0, 0)
         # self.seen_coords = set() ## moved from reset
         self.state_loaded_instead_of_resetting_in_game = 0
-        self.badge_count = 0
         
         # BET ADDED
         self.saved_states_dict = {}
@@ -1811,10 +1829,10 @@ class Environment(Base):
     def get_level_reward(self):
         party_size, party_levels = ram_map.party(self.game)
         self.max_level_sum = max(self.max_level_sum, sum(party_levels))
-        if self.max_level_sum < 50: # 30
+        if self.max_level_sum < 15: # 30
             self.level_reward = 1 * self.max_level_sum
         else:
-            self.level_reward = 50 + (self.max_level_sum - 50) / 4 # 30
+            self.level_reward = 15 + (self.max_level_sum - 15) / 4 # 50
         
     def get_healing_and_death_reward(self):
         party_size, party_levels = ram_map.party(self.game)
@@ -1836,7 +1854,7 @@ class Environment(Base):
     
     @property
     def badges(self):
-        return ram_map.read_m("wObtainedBadges").bit_count()
+        return ram_map.read_m(self.game, "wObtainedBadges").bit_count()
     
     def get_badges_reward(self):
         badge_bonus = self.badges if self.badges >= 2 else 1
@@ -2124,21 +2142,21 @@ class Environment(Base):
             self.reference_reward = ema_reward
             return ema_reward
     
-    def get_exploration_reward(self, map_n):
-        r, c, map_n = ram_map.position(self.game)
-        if self.steps_since_last_new_location >= self.step_threshold:
-            self.bonus_dynamic_reward_multiplier += self.bonus_dynamic_reward_increment
-        self.bonus_dynamic_reward = self.bonus_dynamic_reward_multiplier * len(self.dynamic_bonus_expl_seen_coords)    
-        if map_n in self.poketower_maps and int(ram_map.read_bit(self.game, 0xD838, 7)) == 0:
-            rew = 0
-        elif map_n in self.bonus_exploration_reward_maps:
-            rew = (0.03 * len(self.seen_coords)) # if self.used_cut < 1 else 0.13 * len(self.seen_coords)
-        else:
-            rew = (0.02 * len(self.seen_coords)) # if self.used_cut < 1 else 0.1 * len(self.seen_coords)
-        self.exploration_reward = rew # + self.bonus_dynamic_reward
-        self.exploration_reward += self.shaped_exploration_reward
-        self.seen_coords.add((r, c, map_n))
-        self.exploration_reward = self.get_adjusted_reward(self.exploration_reward, self.time)
+    # def get_exploration_reward(self, map_n):
+    #     r, c, map_n = ram_map.position(self.game)
+    #     # if self.steps_since_last_new_location >= self.step_threshold:
+    #     #     self.bonus_dynamic_reward_multiplier += self.bonus_dynamic_reward_increment
+    #     # self.bonus_dynamic_reward = self.bonus_dynamic_reward_multiplier * len(self.dynamic_bonus_expl_seen_coords)    
+    #     if map_n in self.poketower_maps and int(ram_map.read_bit(self.game, 0xD838, 7)) == 0:
+    #         rew = 0
+    #     elif map_n in self.bonus_exploration_reward_maps:
+    #         rew = (0.03 * len(self.seen_coords)) # if self.used_cut < 1 else 0.13 * len(self.seen_coords)
+    #     else:
+    #         rew = (0.02 * len(self.seen_coords)) # if self.used_cut < 1 else 0.1 * len(self.seen_coords)
+    #     self.exploration_reward = rew # + self.bonus_dynamic_reward
+    #     self.exploration_reward += self.shaped_exploration_reward
+    #     self.seen_coords.add((r, c, map_n))
+    #     self.exploration_reward = self.get_adjusted_reward(self.exploration_reward, self.time)
     
     def tentative_new_get_exploration_reward(self):
         r, c, map_n = ram_map.position(self.game)
@@ -2166,14 +2184,32 @@ class Environment(Base):
                     (map_n in self.rocket_hideout_maps and self.hideout_progress['beat_rocket_hideout_giovanni'] == 0) or \
                         (map_n in self.pokemon_tower_maps and self.pokemon_tower_progress['rescued_mr_fuji'] == 0) or \
                             (map_n in self.silph_co_maps and self.silph_progress["beat_silph_co_giovanni"] == 0):
-                rew = (0.03 * len(self.seen_coords))
+                rew = (0.04 * len(self.seen_coords))
+                
+            elif map_n in self.route_9:
+                if self.route_9_completed:
+                    rew = 0.01
+                else:
+                    rew = 0.05 * len(self.seen_coords)
+                    
+            elif map_n in self.route_10:
+                if self.route_10_completed:
+                    rew = 0.01
+                else:
+                    rew = 0.055 * len(self.seen_coords)
+                    
+            elif map_n in self.rock_tunnel:
+                if self.rock_tunnel_completed:
+                    rew = 0.01
+                else:
+                    rew = 0.06 * len(self.seen_coords)
 
             # Shouldn't trigger, but it's there in case I missed some states
             else:
-                rew = (0.02 * len(self.seen_coords))
+                rew = (0.03 * len(self.seen_coords))
         
         else:
-            rew = (0.02 * len(self.seen_coords))
+            rew = (0.03 * len(self.seen_coords))
             
         self.exploration_reward = rew # + self.bonus_dynamic_reward
         self.exploration_reward += self.shaped_exploration_reward
@@ -2204,66 +2240,24 @@ class Environment(Base):
         self.len_respawn_reward = len(self.respawn)
         return self.len_respawn_reward # * 5
     
-    # # For testing
-    # def compute_and_print_rewards(event_reward, bill_capt_rew, seen_pokemon_reward, caught_pokemon_reward, moves_obtained_reward, bill_reward, hm_reward, level_reward, death_reward, badges_reward, healing_reward, exploration_reward, cut_rew, that_guy_reward, cut_coords_reward, cut_tiles_reward, tree_distance_reward, dojo_reward, hideout_reward, lemonade_in_bag_reward, silph_scope_in_bag_reward, lift_key_in_bag_reward, pokedoll_in_bag_reward, bicycle_in_bag_reward, special_location_rewards, can_reward, reward_scale):
-    #     reward_components = {
-    #         "event_reward": event_reward,
-    #         "bill_capt_rew": bill_capt_rew,
-    #         "seen_pokemon_reward": seen_pokemon_reward,
-    #         "caught_pokemon_reward": caught_pokemon_reward,
-    #         "moves_obtained_reward": moves_obtained_reward,
-    #         "bill_reward": bill_reward,
-    #         "hm_reward": hm_reward,
-    #         "level_reward": level_reward,
-    #         "death_reward": death_reward,
-    #         "badges_reward": badges_reward,
-    #         "healing_reward": healing_reward,
-    #         "exploration_reward": exploration_reward,
-    #         "cut_rew": cut_rew,
-    #         "that_guy": that_guy_reward / 2,
-    #         "cut_coords": cut_coords_reward,
-    #         "cut_tiles": cut_tiles_reward,
-    #         "tree_distance_reward": tree_distance_reward * 0.6,
-    #         "dojo_reward": dojo_reward * 5,
-    #         "hideout_reward": hideout_reward * 5,
-    #         "lemonade_in_bag_reward": lemonade_in_bag_reward,
-    #         "silph_scope_in_bag_reward": silph_scope_in_bag_reward,
-    #         "lift_key_in_bag_reward": lift_key_in_bag_reward,
-    #         "pokedoll_in_bag_reward": pokedoll_in_bag_reward,
-    #         "bicycle_in_bag_reward": bicycle_in_bag_reward,
-    #         "special_location_rewards": special_location_rewards,
-    #         "can_reward": can_reward,
-    #     }
-    #     total_reward = 0
-    #     # Print each reward component and its value
-    #     for component, value in reward_components.items():
-    #         if isinstance(value, (int, float)):
-    #             # print(f"{component}: {value}")
-    #             total_reward += value
-    #     # Apply the reward scale
-    #     total_reward *= reward_scale
-    #     # print(f"\n\nTotal Reward: {total_reward}")
-    #     return total_reward
+    def teach_cut(self):
+        # find bulba and replace tackle (first skill) with cut
+        party_size = ram_map.read_m(self.game, "wPartyCount")
+        for i in range(party_size):
+            # PRET 1-indexes
+            _, species_addr = ram_map.symbol_lookup(self.game, f"wPartyMon{i+1}Species")
+            poke = ram_map.memory(self.game, species_addr)
+            # https://github.com/pret/pokered/blob/d38cf5281a902b4bd167a46a7c9fd9db436484a7/constants/pokemon_constants.asm
+            if poke in data.CUT_SPECIES_IDS:
+                slot = 0
+                _, move_addr = ram_map.symbol_lookup(self.game, f"wPartyMon{i+1}Moves")
+                _, pp_addr = ram_map.symbol_lookup(self.game, f"wPartyMon{i+1}PP")
+                ram_map.write_mem(self.game, move_addr + slot, 15)
+                ram_map.write_mem(self.game, pp_addr + slot, 30)
+                # fill up pp: 30/30
 
     def reset(self, seed=None, options=None, max_episode_steps=20480, reward_scale=4.0):
         """Resets the game. Seeding is NOT supported"""
-        # BET ADDED
-        # # Logic for loading envs based off % milestone achievement
-        # # Decision to load a state based on "files_to_load"
-        # self.assess_milestone_completion_percentage()
-        # # Only 1 env should execute the below:
-        # if self.env_id == 0:
-        #     # Updates shared dict (self.shared_data) with milestones dict for each env
-        #     self.assess_milestone_completion_percentage()
-        #     # Returns average completion percentage for each milestone across all envs
-        #     self.overall_progress = self.compute_overall_progress(self.shared_data)
-        #     # Compares self.overall_progress and self.milestone_threshold dicts
-        #     self.actions_required = self.assess_progress_for_action(self.overall_progress, self.milestone_threshold_dict)
-        #     # Assesses states for loading using saved state files/dirs
-        #     self.sort_and_assess_envs_for_loading(self.shared_data, self.actions_required, 96)
-                    
-        # # Only loads a state if env was determined to need loading
-        # self.load_state_from_tuple()
                 
         self.init_caches()
         assert len(self.all_events_string) == 2552, f'len(self.all_events_string): {len(self.all_events_string)}'
@@ -2280,10 +2274,10 @@ class Environment(Base):
             self.full_frame_writer = media.VideoWriter(base_dir / full_name, (144, 160), fps=60)
             self.full_frame_writer.__enter__()
 
-        # if self.use_screen_memory:
-        #     self.screen_memory = defaultdict(
-        #         lambda: np.zeros((255, 255, 1), dtype=np.uint8)
-        #     )
+        if self.use_screen_memory:
+            self.screen_memory = defaultdict(
+                lambda: np.zeros((255, 255, 1), dtype=np.uint8)
+            )
 
         self.reset_count += 1
         self.time = 0
@@ -2396,20 +2390,23 @@ class Environment(Base):
 
     def step(self, action, fast_video=True):
         
-        run_action_on_emulator(self.game, action)
+        run_action_on_emulator(self.game, action, self.time)
         self.time += 1
-        
-        if self.save_video:
-            self.add_video_frame()
-            
+
         # if self.time % 10 == 0:
         #     self.save_all_states_v3()
             
         # Get local coordinate position and map_n
         r, c, map_n = ram_map.position(self.game)
-        glob_r, glob_c = game_map.local_to_global(r, c, map_n)
-        self.bet_seen_coords.add((glob_r, glob_c))
+                
+        if self.save_video and map_n == 134: # Record video in Celadon Gym (Gym 4)
+            self.add_video_frame()
+            
+        # glob_r, glob_c = game_map.local_to_global(r, c, map_n)
+        # self.bet_seen_coords.add((glob_r, glob_c))
 
+        # Teach cut to bulbasaur (or other pokemon)
+        self.teach_cut()
 
         # if map_n == 15:
         #     self.completed_milestones.append(15)
@@ -2444,10 +2441,10 @@ class Environment(Base):
         self.get_bill_reward()
         self.get_bill_capt_reward()
         self.get_hm_reward()
-        self.get_cut_reward()
+        # self.get_cut_reward()
         self.get_tree_distance_reward(r, c, map_n)
         self.visited_maps() 
-        self.get_respawn_reward()
+        # self.get_respawn_reward()
         self.get_money()
         self.get_opponent_level_reward()
         self.get_event_reward()
@@ -2474,7 +2471,7 @@ class Environment(Base):
         self.count_gym_3_lock_1_use()    
         
         # Calculate some rewards
-        self.calculate_menu_rewards()
+        # self.calculate_menu_rewards()
         # self.calculate_cut_coords_and_tiles_rewards()
         self.calculate_seen_caught_pokemon_moves()
         
@@ -2491,13 +2488,12 @@ class Environment(Base):
 
         info = {}
         done = self.time >= self.max_episode_steps
+        
 
         if self.save_video and done:
             self.full_frame_writer.close()
-        
-        # if done:
-        #     self.save_state()
-        if done or self.time % 5000 == 0:   # 10000
+
+        if done:   # 10000
             info = {
                 "pokemon_exploration_map": self.counts_map,
                 "stats": {
@@ -2519,7 +2515,6 @@ class Environment(Base):
                     "deaths": self.death_count,
                     "deaths_per_episode": self.death_count_per_episode,
                     "badges": float(self.badges),
-                    "self.badge_count": self.badge_count,
                     "badge_1": float(self.badges >= 1),
                     "badge_2": float(self.badges >= 2),
                     "badge_3": float(self.badges >= 3),
@@ -2729,7 +2724,7 @@ class Environment(Base):
             + self.badges_reward
             + self.healing_reward
             + self.exploration_reward
-            + self.cut_reward * 0 # cut script
+            # + self.cut_reward * 0 # cut script
             + self.cut_coords_reward * 0 # cut script
             + self.cut_tiles_reward * 0 # cut script
             + self.used_cut_reward * 0 # cut script
