@@ -1,7 +1,8 @@
 import sys
 import numpy as np
 
-from pyboy import PyBoy, WindowEvent
+from pokegym.pyboy_singleton import get_pyboy_instance 
+from pyboy.utils import WindowEvent
 from red_env_constants import *
 
 
@@ -60,7 +61,7 @@ class PyBoyManager:
 
     def setup_pyboy(self):
         window_type = 'dummy' if self.env.headless else 'SDL2'
-        self.pyboy = PyBoy(
+        self.pyboy = get_pyboy_instance(
             self.env.rom_location,
             debugging=False,
             disable_input=False,

@@ -2,13 +2,14 @@ import sys
 import os
 from os.path import exists
 import sys
-from pyboy import PyBoy, WindowEvent
+from pokegym.pyboy_singleton import get_pyboy_instance 
+from pyboy.utils import WindowEvent
 
 from ram_reader.red_ram_api import *
 from ram_reader.red_ram_debug import *
 import os
 
-pyboy = PyBoy('../PokemonRed.gb')
+pyboy = get_pyboy_instance('../PokemonRed.gb')
 pyboy.set_emulation_speed(5)  # Configurable emulation speed
 
 def clear_screen():

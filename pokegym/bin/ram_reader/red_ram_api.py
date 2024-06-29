@@ -1,7 +1,8 @@
 from enum import IntEnum
 import numpy as np
 from pyboy.utils import WindowEvent
-from pyboy import PyBoy
+# from pyboy import PyBoy
+from pokegym.pyboy_singleton import get_pyboy_instance
 
 from .red_memory_battle import *
 from .red_memory_env import *
@@ -33,16 +34,19 @@ class Game:
         self.map = Map(self)
         self.menus = Menus(self)
         self.player = Player(self)
+        self.pokemon = Pokemon(self)
 
         self.game_state = self.GameState.GAME_STATE_UNKNOWN
 
         self.process_game_states()
+        gb_path = "pokemon_red.gb"
+        symbols_path = "pokemon_red.sym"
+        pyboy = get_pyboy_instance(gb_path, symbols_path)
 
     class GameState(IntEnum):
         FILTERED_INPUT = 0
         IN_BATTLE = 1
         BATTLE_ANIMATION = 2
-        # catch mon
         TALKING = 3
         EXPLORING = 4
         ON_PC = 5
@@ -55,15 +59,12 @@ class Game:
         FOLLOWING_NPC = 12
         GAME_STATE_UNKNOWN = 115
 
-    
-    # Order of precedence is important here, we want to check for battle first, then menus
     def process_game_states(self):
         ORDERED_GAME_STATES = [
-            self.menus.get_pre_battle_menu_state,  # For menu's that could be in both battle and non-battle states
+            self.menus.get_pre_battle_menu_state,
             self.battle.get_battle_state,
             self.player.is_following_npc,
             self.menus.get_menu_state,
-            # TODO: Locations (mart, gym, pokecenter, etc.)
         ]
 
         for game_state in ORDERED_GAME_STATES:
@@ -75,7 +76,6 @@ class Game:
     
     def get_game_state(self):
         return np.array([self.game_state], dtype=np.uint8)
-        
 
     def allow_menu_selection(self, input):
         FILTERED_INPUTS = {
@@ -97,6 +97,61 @@ class Game:
             return True
 
         return False
+
+    def does_party_have_hm(self, hm_id):
+        party_size = self.player._get_lineup_size()
+        for i in range(party_size):
+            pokemon_data = self.pokemon.get_pokemon_data_dict(i)
+            for j in range(4):
+                try:
+                    if hm_id == pokemon_data[f"move_{j+1}"]:
+                        return True
+                except:
+                    continue
+        return False
+    
+    def print_menu_info(self):
+        # Call the API to update game states
+        self.process_game_states()
+        
+        # Print the current game state
+        print(f"Current game state: {self.game_state.name}")
+
+        # Check and print the current menu state if in a menu
+        if self.game_state in [
+            self.GameState.START_MENU, 
+            self.GameState.GAME_MENU, 
+            self.GameState.BATTLE_TEXT, 
+            self.GameState.ON_PC, 
+            self.GameState.MART, 
+            self.GameState.GYM, 
+            self.GameState.POKE_CENTER
+        ]:
+            current_menu_state = self.menus.get_menu_state()
+            print(f"Current menu state: {current_menu_state}")
+
+    def print_api_info(self):
+        self.print_item_info()
+        self.print_menu_info()
+        self.print_player_info()
+        self.print_pokemon_info()
+
+    def print_item_info(self):
+        bag_item_count = self.items.get_bag_item_count()
+        item_ids = self.items.get_bag_item_ids()
+        print(f'Bag Item Count: {bag_item_count}')
+        print(f'Bag Item IDs: {item_ids}')
+
+    def print_player_info(self):
+        lineup_pokemon = self.player.get_player_lineup_pokemon()
+        lineup_levels = self.player.get_player_lineup_levels()
+        print(f'Player Pokemon: {lineup_pokemon}')
+        print(f'Pokemon Levels: {lineup_levels}')
+
+    def print_pokemon_info(self):
+        for i in range(self.player._get_lineup_size()):
+            pokemon_data = self.pokemon.get_pokemon_data_dict(i)
+            print(f'Pokemon {i+1}: {pokemon_data}')
 
 
 class World:

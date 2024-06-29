@@ -1,12 +1,13 @@
 from os.path import exists
-from pyboy import PyBoy, WindowEvent
+from pokegym.pyboy_singleton import get_pyboy_instance 
+from pyboy.utils import WindowEvent
 from threading import Thread, Barrier
 import random
 import traceback
 
 class PyBoyMgr:
     def __init__(self, rom_path, barrier):
-        self._pyboy = PyBoy(rom_path, debugging=False, disable_input=False, window_type='headless')
+        self._pyboy = get_pyboy_instance(rom_path, debugging=False, disable_input=False, window_type='headless')
         self.barrier = barrier
 
     def run_pyboy(self, thread_id):

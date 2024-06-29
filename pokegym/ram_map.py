@@ -1444,11 +1444,18 @@ moves_dict = {
     165: {"Move": 'Struggle', 'Type': 'Normal', 'Category': 'Physical', 'Power': 1, 'PP': 50}
 }
 
+# def read_m(game, addr: str | int) -> int:
+#     if isinstance(addr, str):
+#         _, addr = symbol_lookup(game, addr)
+#     return game.memory[addr]
+
 def read_m(game, addr: str | int) -> int:
     if isinstance(addr, str):
-        _, addr = symbol_lookup(game, addr)
+        return game.memory[game.symbol_lookup(addr)[1]]
     return game.memory[addr]
 
+def memory(pyboy, addr):
+    return pyboy.memory[addr]
 
 def read_short(game, addr: str | int) -> int:
     if isinstance(addr, str):
@@ -1935,7 +1942,7 @@ def restore_party_move_pp(game):
         for j, move_id in enumerate(moves_ids):
             if move_id in moves_dict:
                 # Fetch the move's max PP
-                max_pp = moves_dict[move_id]['PP']
+                max_pp = moves_dict[move_id].get('PP', 0)
                 
                 # Determine the corresponding PP address based on the move slot
                 pp_addr = [MOVE1PP[i], MOVE2PP[i], MOVE3PP[i], MOVE4PP[i]][j]
