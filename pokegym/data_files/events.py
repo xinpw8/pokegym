@@ -2577,16 +2577,19 @@ class EventFlags(Union):
 
     def __init__(self):
         super().__init__()
-        self.pyboy = get_pyboy_instance()
-        self.update()
+        self.emu = get_pyboy_instance()
+        self.last_asbytes = (c_uint8 * 320)()
+        self.update()  # Initialize with current memory state
 
     def update(self):
-        self.asbytes = (c_uint8 * 320)(
-            *self.pyboy.memory[EVENT_FLAGS_START : EVENT_FLAGS_START + EVENTS_FLAGS_LENGTH]
+        new_asbytes = (c_uint8 * 320)(
+            *self.emu.memory[EVENT_FLAGS_START : EVENT_FLAGS_START + EVENTS_FLAGS_LENGTH]
         )
+        if new_asbytes != self.last_asbytes:
+            self.asbytes = new_asbytes
+            self.last_asbytes = new_asbytes
 
     def get_event(self, event_name: str) -> bool:
-        self.update()
         return bool(getattr(self.b, event_name))
 
 #     def get_all_events(self) -> dict:

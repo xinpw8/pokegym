@@ -1805,6 +1805,10 @@ def symbol_lookup(game, symbol: str) -> tuple[int, int]:
 def set_bit(value, bit):
     return value | (1<<bit)
 
+def clear_bit(value, bit_index):
+    """Clears the bit at bit_index in value to 0."""
+    return value & ~(1 << bit_index)
+
 def mem_val(game, addr):
     mem = read_m(game, addr)
     return mem

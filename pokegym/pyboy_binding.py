@@ -131,32 +131,58 @@ def run_action_on_emulator(self, action):
     # press button then release after some steps
     # TODO: Add video saving logic
 
-    print(f'got_hms:\n hm01: {self.events.get_event("EVENT_GOT_HM01")}\n hm03: {self.events.get_event("EVENT_GOT_HM03")}\n hm04: {self.events.get_event("EVENT_GOT_HM04")}\n')
+    # print(f'got_hms:\n hm01: {self.events.get_event("EVENT_GOT_HM01")}\n hm03: {self.events.get_event("EVENT_GOT_HM03")}\n hm04: {self.events.get_event("EVENT_GOT_HM04")}\n')
+    # print(f'party has hm:\n cut: {self.check_if_party_has_hm(0x0F)}\n surf: {self.check_if_party_has_hm(0x39)}\n strength: {self.check_if_party_has_hm(0x46)}\n')
+    # print(f'party badge count: {self.bit_count(self.pyboy.memory[0xD356])}')
+    # badge_address = 0xD356
+    # badge_memory = self.pyboy.memory[badge_address]
 
+    # for i in range(8):
+    #     badge_status = read_bit(badge_address, i)
+    #     print(f'Badge {i+1} status: {badge_status}')
+        
+        
     if not self.disable_ai_actions:
         self.pyboy.send_input(VALID_ACTIONS[action])
         self.pyboy.send_input(VALID_RELEASE_ACTIONS[action], delay=8)
     self.pyboy.tick(self.action_freq, render=True)
 
-    if self.events.get_event("EVENT_GOT_HM01"):  # 0xD803 CUT
+    if self.events.get_event("EVENT_GOT_HM01"):  # 0xD803, 0 CUT
         if self.auto_teach_cut and not self.check_if_party_has_hm(0x0F):
             self.teach_hm(TmHmMoves.CUT.value, 30, CUT_SPECIES_IDS)
         if self.auto_use_cut:
+            # set badge 2 (Misty - CascadeBadge) if not obtained or can't use Cut
+            if read_bit(0xD356, 0) == 0:
+                self.set_badge(1)
             self.cut_if_next()
 
-    if self.events.get_event("EVENT_GOT_HM03"):  # 0xD78E SURF
+    if self.events.get_event("EVENT_GOT_HM03"):  # 0xD857, 0 SURF
         if self.auto_teach_surf and not self.check_if_party_has_hm(0x39):
             self.teach_hm(TmHmMoves.SURF.value, 15, SURF_SPECIES_IDS)
         if self.auto_use_surf:
+            # set badge 5 (Koga - SoulBadge) if not obtained or can't use Surf
+            if read_bit(0xD356, 4) == 0:
+                self.set_badge(5)
             self.surf_if_attempt(VALID_ACTIONS[action])
 
-    if self.events.get_event("EVENT_GOT_HM04"):  # 0xD857 STRENGTH
+    if self.events.get_event("EVENT_GOT_HM04"):  # 0xD78E, 0 STRENGTH
         if self.auto_teach_strength and not self.check_if_party_has_hm(0x46):
             self.teach_hm(TmHmMoves.STRENGTH.value, 15, STRENGTH_SPECIES_IDS)
         if self.auto_solve_strength_puzzles:
+            # set badge 4 (Erika - RainbowBadge) if not obtained or can't use Strength
+            if read_bit(0xD356, 3) == 0:
+                self.set_badge(4)
             self.solve_missable_strength_puzzle()
             self.solve_switch_strength_puzzle()
 
+    if self.events.get_event("EVENT_GOT_HM02"): # 0xD7E0, 6 FLY
+        # if self.auto_teach_fly and not self.check_if_party_has_hm(0x02):
+        #     self.teach_hm(TmHmMoves.FLY.value, 15, FLY_SPECIES_IDS)
+            # # set badge 3 (Lt. Surge - ThunderBadge) if not obtained or can't use Fly
+            # if read_bit(0xD356, 3) == 0:
+            #     self.set_badge(1)
+        pass
+    
     if 'Poke Flute' in self.api.items.get_bag_item_ids() and self.auto_pokeflute:
         self.use_pokeflute()
 
@@ -181,10 +207,6 @@ def read_m(addr: str | int) -> int:
     if isinstance(addr, str):
         return pyboy.memory[pyboy.symbol_lookup(addr)[1]]
     return pyboy.memory[addr]
-
-def read_bit(addr: str | int, bit: int) -> bool:
-    return bool(int(read_m(addr)) & (1 << bit))
-
 
 
 # from collections import defaultdict

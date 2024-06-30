@@ -114,7 +114,7 @@ randstate = os.path.join(STATE_PATH, state_file)
 
 STATE_PATH = __file__.rstrip("environment.py") + "current_state/"
 PLAY_STATE_PATH = __file__.rstrip("environment.py") + "just_died_mt_moon.state"
-EXPERIMENTAL_PATH = STATE_PATH + "fuchsia_next_to_water.state"
+EXPERIMENTAL_PATH = STATE_PATH + "seafoam_at_end_have_articuno.state" # "seafoam_islands_inside.state"
 
 import sdl2 
 import sdl2.ext
@@ -235,8 +235,7 @@ class Base:
             Base.counter.value += 1
             
         print(f'env_id {env_id} created.')
-        
-        self.disable_wild_encounters = False
+
         self.shared_data = shared_data
         self.state_file = get_random_state()
         self.randstate = os.path.join(STATE_PATH, self.state_file)
@@ -279,6 +278,47 @@ class Base:
         # self.csv_path = Path(f'./csv')
         # self.csv_path.mkdir(parents=True, exist_ok=True)
         self.reset_count = 0
+        
+        
+        # Testing section 6/22/24
+        self.put_poke_flute_in_bag_bool = True
+        self.put_silph_scope_in_bag_bool = True
+        self.put_bicycle_in_bag_bool = True
+        self.put_strength_in_bag_bool = True
+        self.put_surf_in_bag_bool = True
+        self.put_cut_in_bag_bool = True
+        
+        self.poke_flute_bag_flag = False
+        self.silph_scope_bag_flag = False
+        self.strength_bag_flag = False
+        self.surf_bag_flag = False
+        self.cut_bag_flag = False
+        
+        self.skip_silph_co_bool = True
+        self.skip_rocket_hideout_bool = True
+        self.skip_safari_zone_bool = True
+        
+        self.disable_wild_encounters = True
+        self.disable_ai_actions = False
+        self.action_freq = 24
+        
+        self.auto_teach_cut = True
+        self.auto_teach_surf = True
+        self.auto_teach_strength = True
+        
+        self.auto_use_cut = True
+        self.auto_use_surf = True
+        self.auto_use_strength = True
+        self.auto_pokeflute = True
+        
+        self.auto_solve_strength_puzzles = True
+        
+        # self.events = EventFlags()
+        
+        # bag management
+        self.index_count = 1
+        
+        
         self.explore_hidden_obj_weight = 1
         self.pokemon_center_save_states = []
         self.pokecenters = [41, 58, 64, 68, 81, 89, 133, 141, 154, 171, 147, 182]
@@ -456,33 +496,7 @@ class Base:
         self.rubbed_captains_back_reward = 0
         self.state_already_saved = False
         self._last_item_count = 0
-        
-        # Testing section 6/22/24
-        self.put_poke_flute_in_bag_bool = True
-        self.put_silph_scope_in_bag_bool = True
-        self.put_bicycle_in_bag_bool = True
-        
-        self.poke_flute_bag_flag = False
-        self.silph_scope_bag_flag = False
-        
-        self.skip_silph_co_bool = True
-        self.skip_rocket_hideout_bool = True
-        self.skip_safari_zone_bool = True
-        
-        self.disable_ai_actions = False
-        self.action_freq = 24
-        
-        self.auto_teach_cut = True
-        self.auto_teach_surf = True
-        self.auto_teach_strength = True
-        
-        self.auto_use_cut = True
-        self.auto_use_surf = True
-        self.auto_use_strength = True
-        self.auto_pokeflute = True
-        
-        # self.events = EventFlags()
-        
+
         self.init_mem()
         self.reset_mem()
         self.reset_bag_item_vars()
@@ -654,17 +668,19 @@ class Base:
         hook_register(self.game, None, "SetLastBlackoutMap.done", self.blackout_update_hook, None)
         # hook_register(self.game, None, "UsedCut.nothingToCut", self.cut_hook, context=True)
         # hook_register(self.game, None, "UsedCut.canCut", self.cut_hook, context=False)
-
-        if self.disable_wild_encounters:
-            print("registering")
-            bank, addr = self.game.symbol_lookup("TryDoWildEncounter.gotWildEncounterType")
-            hook_register(self.game,
-                bank,
-                addr + 8,
-                self.disable_wild_encounter_hook,
-                None,
-            )
         hook_register(self.game, None, "AddItemToInventory_.checkIfInventoryFull", self.inventory_not_full, None)
+    
+        if self.disable_wild_encounters:
+            self.setup_disable_wild_encounters()
+            
+    def setup_disable_wild_encounters(self):
+        bank, addr = self.game.symbol_lookup("TryDoWildEncounter.gotWildEncounterType")
+        hook_register(self.game,
+            bank,
+            addr + 8,
+            self.disable_wild_encounter_hook,
+            None,
+        )
     
     def delete_items(self, *args, **kwargs):
         self._last_item_count = len(self.get_items_in_bag())
@@ -1378,7 +1394,6 @@ class Environment(Base):
 
         print(f'env_id {env_id} created.')
 
-        self.disable_wild_encounters = False
         self.shared_data = shared_data
         self.state_file = get_random_state()
         self.randstate = os.path.join(STATE_PATH, self.state_file)
@@ -1658,7 +1673,12 @@ class Environment(Base):
                     pass
         else:
             # Reset count for current global position if it's a new map for warp artifacts
-            self.counts_map[(glob_r, glob_c)] = -1
+            try:
+                self.counts_map[(glob_r, glob_c)] = -1
+            except IndexError:
+                print(f'IndexError: index {glob_r} or {glob_c} for {current_map} is out of bounds for axis 0 with size 444.')
+                glob_r = 0
+                glob_c = 0
 
         # Update last_map for the next iteration
         self.last_map = current_map
@@ -2778,26 +2798,32 @@ class Environment(Base):
         self.respawn.add(center)
         self.len_respawn_reward = len(self.respawn)
         return self.len_respawn_reward # * 5
-    
 
     def teach_hm(self, tmhm: int, pp: int, pokemon_species_ids):
-        # find bulba and replace tackle (first skill) with cut
-        party_size = self.read_m("wPartyCount")
+        # Find the Pokémon in the party and replace a move with the HM/TM
+        party_size = self.read_m("wPartyCount")        
         for i in range(party_size):
             # PRET 1-indexes
             _, species_addr = self.pyboy.symbol_lookup(f"wPartyMon{i+1}Species")
-            poke = self.pyboy.memory[species_addr]
-            # https://github.com/pret/pokered/blob/d38cf5281a902b4bd167a46a7c9fd9db436484a7/constants/pokemon_constants.asm
-            if poke in pokemon_species_ids:
+            poke = self.pyboy.memory[species_addr]            
+            # Check if the Pokémon is in the specified species list
+            if poke in pokemon_species_ids:                
+                # Get the address of the Pokémon's moves
+                _, move_base_addr = self.pyboy.symbol_lookup(f"wPartyMon{i+1}Moves")
+                _, pp_base_addr = self.pyboy.symbol_lookup(f"wPartyMon{i+1}PP")
                 for slot in range(4):
-                    if self.read_m(f"wPartyMon{i+1}Moves") not in {0xF, 0x13, 0x39, 0x46, 0x94}:
-                        _, move_addr = self.pyboy.symbol_lookup(f"wPartyMon{i+1}Moves")
-                        _, pp_addr = self.pyboy.symbol_lookup(f"wPartyMon{i+1}PP")
-                        self.pyboy.memory[move_addr + slot] = tmhm
-                        self.pyboy.memory[pp_addr + slot] = pp
-                        # fill up pp: 30/30
+                    move_addr = move_base_addr + slot
+                    pp_addr = pp_base_addr + slot
+                    move = self.pyboy.memory[move_addr]
+                    # Check if the current move is not an HM move
+                    if move not in {0xF, 0x13, 0x39, 0x46, 0x94}:
+                        # Update the move and PP at the found slot
+                        self.pyboy.memory[move_addr] = tmhm
+                        self.pyboy.memory[pp_addr] = pp                
+                        # Break after teaching the HM to the first suitable slot
                         break
 
+    
     def compact_bag(self):
         bag_start = 0xD31E
         bag_end = 0xD31E + 20 * 2  # Assuming a maximum of 20 items in the bag
@@ -3086,7 +3112,8 @@ class Environment(Base):
         # self.print_pokemon_info()
     
     def step(self, action, fast_video=True):
-                
+        
+        self.events.update()        
         self.api.process_game_states()
         current_bag_items = self.api.items.get_bag_item_ids()
         self.check_bag_items(current_bag_items)
@@ -3118,33 +3145,53 @@ class Environment(Base):
         # self.put_poke_flute_in_bag()
         
         if (self.put_poke_flute_in_bag_bool and ram_map_leanke.monitor_poke_tower_events(self.pyboy)["rescued_mr_fuji_1"]) or self.poke_flute_bag_flag:
-            self.put_poke_flute_in_bag()
+            self.put_item_in_bag(0x49) # poke flute
         if (self.put_silph_scope_in_bag_bool and ram_map_leanke.monitor_hideout_events(self.pyboy)["found_rocket_hideout"]) or self.silph_scope_bag_flag:
-            self.put_silph_scope_in_bag()
+            self.put_item_in_bag(0x48) # silph scope
         if self.put_bicycle_in_bag_bool or self.bicycle_bag_flag:
-            self.put_bicycle_in_bag()
+            self.put_item_in_bag(0x06) # bicycle
+        if self.put_strength_in_bag_bool or self.strength_bag_flag:
+            self.put_item_in_bag(0xC7) # hm04 strength
+        if self.put_cut_in_bag_bool or self.cut_bag_flag:
+            self.put_item_in_bag(0xC4) # hm01 cut
+        if self.put_surf_in_bag_bool or self.surf_bag_flag:
+            self.put_item_in_bag(0xC6) # hm03 surf
+            
+        self.put_item_in_bag(0xC6) # hm03 surf
+        self.put_item_in_bag(0xC4) # hm01 cut
+        self.put_item_in_bag(0xC7) # hm04 strength
+        # self.put_item_in_bag(0x01) # master ball
+            
+            
+            
         c, r, map_n = self.get_game_coords()
         print(f'\nc={c}, r={r}, map_n={map_n}\n')
         
         # put everything in bag
-        self.put_poke_flute_in_bag()
-        self.put_silph_scope_in_bag()
-        self.put_bicycle_in_bag()    
-        # set hm event flags if hm is in bag
+        # self.put_poke_flute_in_bag()
+        self.put_item_in_bag(0x49) # poke flute
+        
+        # self.put_silph_scope_in_bag()
+        self.put_item_in_bag(0x48) # silph scope
+        
+        # self.put_bicycle_in_bag()    
+        self.put_item_in_bag(0x6) # bicycle
+        
         self.set_hm_event_flags()
         
         
+        # self.api.print_api_info()
         # self.events_compare()
         # print('_____________________________________________________________')
         # self.print_menu_info()
         # print('_____________________________________________________________')
-        self.print_api_info()
-        print(f'in battle? ram {self.read_m(0xD057)}')
-        print(f'in battle wIsInBattle: {self.read_m("wIsInBattle")}')
-        print(f'in battle is_in_battle: {ram_map.is_in_battle(self.pyboy)}')
+        # self.print_api_info()
+        # print(f'in battle? ram {self.read_m(0xD057)}')
+        # print(f'in battle wIsInBattle: {self.read_m("wIsInBattle")}')
+        # print(f'in battle is_in_battle: {ram_map.is_in_battle(self.pyboy)}')
         # print('_____________________________________________________________')        
-        self.scripted_manage_items()
-        self.compact_bag()
+        # self.scripted_manage_items()
+        # self.compact_bag()
         
         if self.save_video:
             self.add_video_frame()
@@ -3595,8 +3642,14 @@ class Environment(Base):
         gold_teeth_bit = 1
         current_value = self.pyboy.memory[gold_teeth_address]
         self.pyboy.memory[gold_teeth_address] = current_value | (1 << gold_teeth_bit)
-        self.put_strength_in_bag()
-        self.put_surf_in_bag()
+        self.put_item_in_bag(0xC7) # hm04 strength
+        self.put_item_in_bag(0xC6) # hm03 surf
+        # set event flags for got_surf and got_strength
+        current_value_surf = self.pyboy.memory[0xD857]
+        self.pyboy.memory[0xD857] = current_value_surf | (1 << 0)
+        current_value_strength = self.pyboy.memory[0xD78E]
+        self.pyboy.memory[0xD78E] = current_value_strength | (1 << 0)
+        
         c, r, map_n = self.get_game_coords()
         
         try:
@@ -3627,38 +3680,57 @@ class Environment(Base):
                 logging.info(f'env_id: {self.env_id} had exception in skip_safari_zone in run_action_on_emulator. error={e}')
                 pass
     
-    def put_silph_scope_in_bag(self):    
-        self.silph_scope_bag_flag = True    
-        # Put silph scope in items bag
-        # if ram_map_leanke.monitor_hideout_events(self.pyboy)["found_rocket_hideout"]:
-        idx = 0  # place the Silph Scope in the first slot of bag
-        self.pyboy.memory[0xD31E + idx * 2] = 0x48  # silph scope 0x48
-        self.pyboy.memory[0xD31F + idx * 2] = 1     # Item quantity
+    # def put_silph_scope_in_bag(self):    
+    #     self.silph_scope_bag_flag = True    
+    #     # Put silph scope in items bag
+    #     # if ram_map_leanke.monitor_hideout_events(self.pyboy)["found_rocket_hideout"]:
+    #     idx = 0  # place the Silph Scope in the first slot of bag
+    #     self.pyboy.memory[0xD31E + idx * 2] = 0x48  # silph scope 0x48
+    #     self.pyboy.memory[0xD31F + idx * 2] = 1     # Item quantity
+    #     self.compact_bag()
+
+    # def put_poke_flute_in_bag(self):
+    #     self.poke_flute_bag_flag = True
+    #     # Put poke flute in bag if we have rescued mr fuji or if self.poke_flute_bag_flag is True
+    #     # if ram_map_leanke.monitor_poke_tower_events(self.pyboy)["rescued_mr_fuji_1"]:
+    #     idx = 1  # Assuming the index where you want to place the Poke Flute
+    #     self.pyboy.memory[0xD31E + idx * 2] = 0x49  # poke flute 0x49
+    #     self.pyboy.memory[0xD31F + idx * 2] = 1     # Item quantity
+    #     self.compact_bag()
+        
+    # def put_surf_in_bag(self):
+    #     self.surf_bag_flag = True
+    #     idx = 2
+    #     self.pyboy.memory[0xD31E + idx * 2] = 0xC6  # hm03 surf
+    #     self.pyboy.memory[0xD31F + idx * 2] = 1     # Item quantity
+    #     self.compact_bag()
+    
+    # def put_strength_in_bag(self):
+    #     self.strength_bag_flag = True
+    #     idx = 2
+    #     self.pyboy.memory[0xD31E + idx * 2] = 0xC7  # hm04 strength
+    #     self.pyboy.memory[0xD31F + idx * 2] = 1     # Item quantity
+    #     self.compact_bag()
+        
+    def put_item_in_bag(self, item_id):
+        # Fetch current items in the bag without lookup
+        
+        item_id = item_id
+        current_items = self.api.items.get_bag_item_ids_no_lookup()
+        for i in current_items:
+            try:
+                if int(i, 16) == item_id:
+                    return
+            except:
+                continue
+            
+        index = self.index_count
+        self.pyboy.memory[0xD31E + index * 2] = item_id
+        self.pyboy.memory[0xD31F + index * 2] = 1  # Item quantity
+        self.index_count += 1
         self.compact_bag()
 
-    def put_poke_flute_in_bag(self):
-        self.poke_flute_bag_flag = True
-        # Put poke flute in bag if we have rescued mr fuji or if self.poke_flute_bag_flag is True
-        # if ram_map_leanke.monitor_poke_tower_events(self.pyboy)["rescued_mr_fuji_1"]:
-        idx = 1  # Assuming the index where you want to place the Poke Flute
-        self.pyboy.memory[0xD31E + idx * 2] = 0x49  # poke flute 0x49
-        self.pyboy.memory[0xD31F + idx * 2] = 1     # Item quantity
-        self.compact_bag()
-        
-    def put_surf_in_bag(self):
-        self.surf_bag_flag = True
-        idx = 2
-        self.pyboy.memory[0xD31E + idx * 2] = 0xC6  # hm03 surf
-        self.pyboy.memory[0xD31F + idx * 2] = 1     # Item quantity
-        self.compact_bag()
-    
-    def put_strength_in_bag(self):
-        self.strength_bag_flag = True
-        idx = 2
-        self.pyboy.memory[0xD31E + idx * 2] = 0xC7  # hm04 strength
-        self.pyboy.memory[0xD31F + idx * 2] = 1     # Item quantity
-        self.compact_bag()
-            
+    # if hm in bag, set the flag
     def set_hm_event_flags(self):
         # Addresses and bits for each HM event
         hm_events = {
@@ -3669,13 +3741,13 @@ class Environment(Base):
             'HM05 Flash': (0xD7C2, 0)
         }
         
-        comparison = ram_map_leanke.monitor_hmtm_events(self.pyboy)
-        print(f'ram_map_leanke comparison hm events: {comparison}')
+        # comparison = ram_map_leanke.monitor_hmtm_events(self.pyboy)
+        # print(f'ram_map_leanke comparison hm events: {comparison}')
         
-        for hm, (address, bit) in hm_events.items():
-            print(f'hm EVENT status for {hm}: {self.read_bit(address, bit)}')
+        # for hm, (address, bit) in hm_events.items():
+            # print(f'hm EVENT status for {hm}: {self.read_bit(address, bit)}')
         
-        print(f'\nhm_events={hm_events}')
+        # print(f'\nhm_events={hm_events}')
         for hm, (address, bit) in hm_events.items():
             if hm in self.api.items.get_bag_item_ids():
                 current_value = self.pyboy.memory[address]
@@ -3689,6 +3761,14 @@ class Environment(Base):
         self.pyboy.memory[0xD31F + idx * 2] = 1  # Item quantity
         self.compact_bag()
 
+    def set_badge(self, badge_number):
+        badge_address = 0xD356
+        badge_value = self.game.memory[badge_address]
+        # If I call self.set_badge(1), to set badge 1, we set bit 0 to True
+        new_badge_value = ram_map.set_bit(badge_value, badge_number - 1)        
+        # Write back the new badge value to memory
+        self.game.memory[badge_address] = new_badge_value
+        
     def use_pokeflute(self):
         coords = self.get_game_coords()
         if coords[2] == 23:
@@ -3824,6 +3904,8 @@ class Environment(Base):
                             self.setup_enable_wild_ecounters()
                         break
 
+    # currently gets stuck on (c, r, map_n) (23, 6, 160), can only input LEFT. maybe intended.
+    # (26, 8, 192) boulder does not push correctly
     def solve_switch_strength_puzzle(self):
         in_cavern = self.read_m("wCurMapTileset") == Tilesets.CAVERN.value
         if in_cavern:
@@ -3949,8 +4031,13 @@ class Environment(Base):
 
         in_overworld = self.read_m("wCurMapTileset") == Tilesets.OVERWORLD.value
         in_plateau = self.read_m("wCurMapTileset") == Tilesets.PLATEAU.value
-        if in_overworld or in_plateau:
+        in_cavern = self.read_m("wCurMapTileset") == Tilesets.CAVERN.value
+        print(f'current map tileset: {self.read_m("wCurMapTileset")}')
+        # c, r, map_n
+        surf_spots_in_cavern = [(23, 5, 162), (7, 11, 162), (7, 3, 162), (15, 7, 161), (23, 9, 161)]
+        if in_overworld or in_plateau or (in_cavern and self.get_game_coords() in surf_spots_in_cavern):
             _, wTileMap = self.pyboy.symbol_lookup("wTileMap")
+            print(f'wTileMap={wTileMap}')
             tileMap = self.pyboy.memory[wTileMap : wTileMap + 20 * 18]
             tileMap = np.array(tileMap, dtype=np.uint8)
             
@@ -4030,3 +4117,10 @@ class Environment(Base):
                 self.pyboy.send_input(WindowEvent.PRESS_BUTTON_A)
                 self.pyboy.send_input(WindowEvent.RELEASE_BUTTON_A, delay=8)
                 self.pyboy.tick(4 * self.action_freq, render=True)
+                
+            # press b bunch of times in case surf failed
+            for _ in range(5):
+                self.pyboy.send_input(WindowEvent.PRESS_BUTTON_B)
+                self.pyboy.send_input(WindowEvent.RELEASE_BUTTON_B, delay=8)
+                self.pyboy.tick(4 * self.action_freq, render=True)
+

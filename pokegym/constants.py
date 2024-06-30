@@ -330,6 +330,21 @@ ALL_HEALABLE_ITEM_IDS = [  # from worst to best, so that it will consume the wor
     0x53,  # MAX_ELIXER
 ]
 
+ALL_REQUIRED_ITEMS = ALL_HM_IDS + SPECIAL_KEY_ITEM_IDS
+ALL_REQUIRED_ITEMS_DICT = {
+    'Secret Key': 0,
+    'Card Key': 1,
+    'HM04 Strength': 2,
+    'Oaks Parcel': 3,
+    'Silph Scope': 4,
+    'HM03 Surf': 5,
+    'Gold Teeth': 6,
+    'HM01 Cut': 7,
+    'Poke Flute': 8,
+    'Lift Key': 9,
+    'SS Ticket': 10
+}
+
 ALL_GOOD_ITEMS = ALL_KEY_ITEMS + ALL_POKEBALL_IDS + ALL_HEALABLE_ITEM_IDS + ALL_HM_IDS
 
 GOOD_ITEMS_PRIORITY = [  # from worst to best, so that it will toss the worst first

@@ -139,8 +139,10 @@ class Game:
     def print_item_info(self):
         bag_item_count = self.items.get_bag_item_count()
         item_ids = self.items.get_bag_item_ids()
+        item_ids_no_lookup = self.items.get_bag_item_ids_no_lookup()
         print(f'Bag Item Count: {bag_item_count}')
         print(f'Bag Item IDs: {item_ids}')
+        print(f'Bag Item IDs (No Lookup): {item_ids_no_lookup}')
 
     def print_player_info(self):
         lineup_pokemon = self.player.get_player_lineup_pokemon()
@@ -471,11 +473,26 @@ class Items:
                 items[i] = ""  # Handle unknown items
         return items
     
+    def _get_items_in_range_no_lookup(self, size, index, offset):
+        items = [None] * size
+        for i in range(size):
+            item_val = self.env.ram_interface.read_memory(index + i * offset)
+            if item_val == 0xFF:
+                items[i] = ""  # Represent empty slots as "Empty"
+            elif item_val == 4:
+                items[i] = "Pokeball"  # Add Pokeball to the lookup
+            else:
+                items[i] = hex(item_val)  # Return the hexadecimal representation of the item value
+        return items
+        
     def get_bag_item_count(self):
         return self.env.ram_interface.read_memory(BAG_TOTAL_ITEMS)
 
     def get_bag_item_ids(self):
         return np.array(self._get_items_in_range(BAG_SIZE, BAG_ITEMS_INDEX, ITEMS_OFFSET))
+    
+    def get_bag_item_ids_no_lookup(self):
+        return np.array(self._get_items_in_range_no_lookup(BAG_SIZE, BAG_ITEMS_INDEX, ITEMS_OFFSET))
 
     def get_bag_item_quantities(self):
         item_quan = [self.env.ram_interface.read_memory(BAG_ITEM_QUANTITY_INDEX + i * ITEMS_OFFSET) for i in range(self.get_bag_item_count())]
